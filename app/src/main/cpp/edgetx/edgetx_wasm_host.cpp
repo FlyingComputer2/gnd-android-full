@@ -10,7 +10,6 @@
 #include <thread>
 #include <vector>
 
-namespace {
 struct EdgeTxWasmHost {
     std::mutex mutex;
     std::string last_error;
@@ -191,7 +190,6 @@ static void refresh_lcd_locked(EdgeTxWasmHost* host) {
     const uint32_t n = argv[0] < host->lcd_bytes ? argv[0] : host->lcd_bytes;
     std::memcpy(host->lcd_host.data(), native, n);
 }
-}  // namespace
 
 EdgeTxWasmHost* edgetx_wasm_create(const char* wasm_path, const char* sd_path,
                                      const char* settings_path, std::string* err) {
