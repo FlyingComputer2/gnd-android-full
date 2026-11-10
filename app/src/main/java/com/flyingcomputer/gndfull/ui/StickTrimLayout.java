@@ -1,8 +1,8 @@
 package com.flyingcomputer.gndfull.ui;
 
 /**
- * Places TX16S-style trims on a square gimbal: horizontal rocker on top, vertical
- * rocker on the inner edge (between the two sticks).
+ * Full-cell gimbal with slim trim rockers overlaid inside: ◀▶ on top, ▲▼ on the
+ * inner edge (between the two sticks).
  */
 public final class StickTrimLayout {
     public static final class Box {
@@ -23,43 +23,45 @@ public final class StickTrimLayout {
     private StickTrimLayout() {}
 
     /**
-     * @param leftStick left gimbal gets the vertical trim on its right (inner) edge;
-     *     right gimbal gets it on the left (inner) edge.
+     * @param leftStick left gimbal: vertical trim on the right (inner) edge;
+     *     right gimbal: vertical trim on the left (inner) edge.
      */
     public static void place(
-            int originX,
-            int originY,
-            int size,
+            int width,
+            int height,
             int trimPx,
+            int insetPx,
             boolean leftStick,
             Box gimbal,
             Box hTrim,
             Box vTrim) {
-        int inner = Math.max(1, trimPx);
-        int side = Math.max(inner * 3, size);
-        int right = originX + side;
-        int bottom = originY + side;
+        int w = Math.max(1, width);
+        int h = Math.max(1, height);
+        int slim = Math.max(1, trimPx);
+        int inset = Math.max(0, insetPx);
+        gimbal.left = 0;
+        gimbal.top = 0;
+        gimbal.right = w;
+        gimbal.bottom = h;
 
-        hTrim.left = originX + (leftStick ? 0 : inner);
-        hTrim.top = originY;
-        hTrim.right = right - (leftStick ? inner : 0);
-        hTrim.bottom = originY + inner;
+        int hLen = Math.max(slim * 4, w * 3 / 10);
+        hLen = Math.min(hLen, Math.max(slim, w - inset * 2));
+        hTrim.left = (w - hLen) / 2;
+        hTrim.top = inset;
+        hTrim.right = hTrim.left + hLen;
+        hTrim.bottom = inset + slim;
 
+        int vLen = Math.max(slim * 4, h * 3 / 10);
+        vLen = Math.min(vLen, Math.max(slim, h - inset * 2));
+        int vTop = (h - vLen) / 2;
+        vTrim.top = vTop;
+        vTrim.bottom = vTop + vLen;
         if (leftStick) {
-            vTrim.left = right - inner;
-            vTrim.top = originY + inner;
-            vTrim.right = right;
-            vTrim.bottom = bottom;
+            vTrim.right = w - inset;
+            vTrim.left = vTrim.right - slim;
         } else {
-            vTrim.left = originX;
-            vTrim.top = originY + inner;
-            vTrim.right = originX + inner;
-            vTrim.bottom = bottom;
+            vTrim.left = inset;
+            vTrim.right = inset + slim;
         }
-
-        gimbal.left = originX + (leftStick ? 0 : inner);
-        gimbal.top = originY + inner;
-        gimbal.right = right - (leftStick ? inner : 0);
-        gimbal.bottom = bottom;
     }
 }

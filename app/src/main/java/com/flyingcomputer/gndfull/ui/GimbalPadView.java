@@ -9,7 +9,7 @@ import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 
-/** One touch gimbal; tracks a single active pointer ID. */
+/** One touch gimbal; tracks a single active pointer ID. Fills its cell. */
 public final class GimbalPadView extends View {
     public interface Listener {
         void onAxis(int normX, int normY);
@@ -21,12 +21,15 @@ public final class GimbalPadView extends View {
     private final Paint frame = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint cross = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint knob = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF square = new RectF();
+    private final RectF field = new RectF();
+    private final RectF ring = new RectF();
     private final PointF center = new PointF();
     private final PointF knobPt = new PointF();
+    private final float[] clamped = new float[2];
     private Listener listener;
     private int activePointer = -1;
-    private float radius;
+    private float radiusX;
+    private float radiusY;
 
     public GimbalPadView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -55,26 +58,27 @@ public final class GimbalPadView extends View {
         float padT = getPaddingTop();
         float padR = getPaddingRight();
         float padB = getPaddingBottom();
-        float availW = w - padL - padR;
-        float availH = h - padT - padB;
-        float side = Math.max(1f, Math.min(availW, availH));
-        float left = padL + (availW - side) / 2f;
-        float top = padT + (availH - side) / 2f;
-        square.set(left, top, left + side, top + side);
-        center.set(square.centerX(), square.centerY());
-        radius = side * 0.40f;
+        field.set(padL, padT, w - padR, h - padB);
+        if (field.width() < 1f || field.height() < 1f) {
+            field.set(0, 0, Math.max(1, w), Math.max(1, h));
+        }
+        center.set(field.centerX(), field.centerY());
+        radiusX = field.width() * 0.42f;
+        radiusY = field.height() * 0.42f;
+        ring.set(center.x - radiusX, center.y - radiusY, center.x + radiusX, center.y + radiusY);
         knobPt.set(center);
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
-        float r = Math.min(square.width(), square.height()) * 0.08f;
-        canvas.drawRoundRect(square, r, r, fill);
-        canvas.drawRoundRect(square, r, r, frame);
-        canvas.drawCircle(center.x, center.y, radius, frame);
-        canvas.drawLine(center.x - radius, center.y, center.x + radius, center.y, cross);
-        canvas.drawLine(center.x, center.y - radius, center.x, center.y + radius, cross);
-        canvas.drawCircle(knobPt.x, knobPt.y, radius * 0.22f, knob);
+        float r = Math.min(field.width(), field.height()) * 0.06f;
+        canvas.drawRoundRect(field, r, r, fill);
+        canvas.drawRoundRect(field, r, r, frame);
+        canvas.drawOval(ring, frame);
+        canvas.drawLine(center.x - radiusX, center.y, center.x + radiusX, center.y, cross);
+        canvas.drawLine(center.x, center.y - radiusY, center.x, center.y + radiusY, cross);
+        float knobR = Math.min(radiusX, radiusY) * 0.20f;
+        canvas.drawCircle(knobPt.x, knobPt.y, knobR, knob);
     }
 
     @Override
@@ -112,20 +116,16 @@ public final class GimbalPadView extends View {
         if (index < 0) {
             return;
         }
-        float x = event.getX(index);
-        float y = event.getY(index);
-        float dx = x - center.x;
-        float dy = y - center.y;
-        float dist = (float) Math.hypot(dx, dy);
-        if (dist > radius) {
-            float scale = radius / dist;
-            dx *= scale;
-            dy *= scale;
-        }
-        knobPt.set(center.x + dx, center.y + dy);
+        GimbalTravel.clamp(
+                event.getX(index) - center.x,
+                event.getY(index) - center.y,
+                radiusX,
+                radiusY,
+                clamped);
+        knobPt.set(center.x + clamped[0], center.y + clamped[1]);
         if (listener != null) {
-            int normX = Math.round((dx / radius) * 1024f);
-            int normY = Math.round((-dy / radius) * 1024f);
+            int normX = Math.round((clamped[0] / radiusX) * 1024f);
+            int normY = Math.round((-clamped[1] / radiusY) * 1024f);
             listener.onAxis(normX, normY);
         }
         invalidate();

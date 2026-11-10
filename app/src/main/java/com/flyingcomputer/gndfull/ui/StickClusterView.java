@@ -5,10 +5,11 @@ import android.view.View;
 import android.view.ViewGroup;
 import com.flyingcomputer.gndfull.edgetx.Tx16TrimMap;
 
-/** Square gimbal with overlay trim rockers: ◀▶ on top, ▲▼ on the inner edge. */
+/** Full-cell gimbal with slim inner trim rockers overlaid on the stick. */
 public final class StickClusterView extends ViewGroup {
     private final boolean leftStick;
     private final int trimPx;
+    private final int insetPx;
     private final GimbalPadView gimbal;
     private final TrimRockerView hTrim;
     private final TrimRockerView vTrim;
@@ -16,7 +17,9 @@ public final class StickClusterView extends ViewGroup {
     public StickClusterView(Context context, boolean leftStick) {
         super(context);
         this.leftStick = leftStick;
-        trimPx = Math.round(getResources().getDisplayMetrics().density * 26f);
+        float density = getResources().getDisplayMetrics().density;
+        trimPx = Math.round(density * 14f);
+        insetPx = Math.round(density * 8f);
         gimbal = new GimbalPadView(context, null);
         int hMinus = leftStick ? Tx16TrimMap.LH_DEC : Tx16TrimMap.RH_DEC;
         int hPlus = leftStick ? Tx16TrimMap.LH_INC : Tx16TrimMap.RH_INC;
@@ -47,15 +50,10 @@ public final class StickClusterView extends ViewGroup {
 
     @Override
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
-        int w = r - l;
-        int h = b - t;
-        int size = Math.min(w, h);
-        int ox = (w - size) / 2;
-        int oy = (h - size) / 2;
         StickTrimLayout.Box gimbalBox = new StickTrimLayout.Box();
         StickTrimLayout.Box hBox = new StickTrimLayout.Box();
         StickTrimLayout.Box vBox = new StickTrimLayout.Box();
-        StickTrimLayout.place(ox, oy, size, trimPx, leftStick, gimbalBox, hBox, vBox);
+        StickTrimLayout.place(r - l, b - t, trimPx, insetPx, leftStick, gimbalBox, hBox, vBox);
         layoutChild(gimbal, gimbalBox);
         layoutChild(hTrim, hBox);
         layoutChild(vTrim, vBox);
