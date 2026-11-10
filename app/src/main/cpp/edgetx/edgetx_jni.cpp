@@ -4,6 +4,54 @@
 #include <vector>
 
 namespace {
+
+JavaVM* g_jvm = nullptr;
+jmethodID g_audio_deliver_mid = nullptr;
+jobject g_audio_sink_global = nullptr;
+
+void clear_audio_jni() {
+    if (!g_jvm || !g_audio_sink_global) {
+        return;
+    }
+    JNIEnv* env = nullptr;
+    if (g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK || !env) {
+        return;
+    }
+    env->DeleteGlobalRef(g_audio_sink_global);
+    g_audio_sink_global = nullptr;
+    g_audio_deliver_mid = nullptr;
+}
+
+void deliver_audio_jni(const uint8_t* data, uint32_t len) {
+    if (!g_jvm || !g_audio_sink_global || !g_audio_deliver_mid || !data || len == 0) {
+        return;
+    }
+    JNIEnv* env = nullptr;
+    bool detach = false;
+    if (g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_EDETACHED) {
+        if (g_jvm->AttachCurrentThread(&env, nullptr) != JNI_OK || !env) {
+            return;
+        }
+        detach = true;
+    }
+    jbyteArray arr = env->NewByteArray(static_cast<jsize>(len));
+    if (!arr) {
+        if (detach) {
+            g_jvm->DetachCurrentThread();
+        }
+        return;
+    }
+    env->SetByteArrayRegion(arr, 0, static_cast<jsize>(len), reinterpret_cast<const jbyte*>(data));
+    env->CallVoidMethod(g_audio_sink_global, g_audio_deliver_mid, arr);
+    env->DeleteLocalRef(arr);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+    if (detach) {
+        g_jvm->DetachCurrentThread();
+    }
+}
+
 EdgeTxWasmHost* ptr(jlong handle) {
     return reinterpret_cast<EdgeTxWasmHost*>(handle);
 }
@@ -18,6 +66,11 @@ jbyteArray to_jbytes(JNIEnv* env, const std::vector<uint8_t>& data) {
     return out;
 }
 }  // namespace
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
+    g_jvm = vm;
+    return JNI_VERSION_1_6;
+}
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeCreate(
@@ -39,7 +92,30 @@ Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeCreate(
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeDestroy(JNIEnv*, jobject, jlong handle) {
+    edgetx_wasm_set_audio_chunk_handler(ptr(handle), EdgetxAudioChunkFn{});
     edgetx_wasm_destroy(ptr(handle));
+    clear_audio_jni();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeBindAudioSink(
+    JNIEnv* env, jobject, jlong handle, jobject sink) {
+    clear_audio_jni();
+    if (!sink) {
+        edgetx_wasm_set_audio_chunk_handler(ptr(handle), EdgetxAudioChunkFn{});
+        return;
+    }
+    jclass cls = env->GetObjectClass(sink);
+    g_audio_deliver_mid = env->GetMethodID(cls, "deliverNativeChunk", "([B)V");
+    if (!g_audio_deliver_mid) {
+        env->ExceptionClear();
+        edgetx_wasm_set_audio_chunk_handler(ptr(handle), EdgetxAudioChunkFn{});
+        return;
+    }
+    g_audio_sink_global = env->NewGlobalRef(sink);
+    EdgeTxWasmHost* host = ptr(handle);
+    edgetx_wasm_set_audio_chunk_handler(
+        host, [](const uint8_t* data, uint32_t len) { deliver_audio_jni(data, len); });
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

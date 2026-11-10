@@ -48,6 +48,7 @@ struct EdgeTxWasmHost {
     wasm_function_inst_t fn_create_defaults = nullptr;
     wasm_function_inst_t fn_boot_complete = nullptr;
     wasm_function_inst_t fn_lcd_changed = nullptr;
+    EdgetxAudioChunkFn audio_chunk;
 };
 
 static EdgeTxWasmHost* g_notify_host = nullptr;
@@ -70,7 +71,29 @@ static void host_simu_lcd_notify(wasm_exec_env_t) {
     }
 }
 
-static void host_simu_queue_audio(wasm_exec_env_t, uint8_t*, uint32_t) {}
+static void host_simu_queue_audio(wasm_exec_env_t exec_env, uint8_t* buf, uint32_t len) {
+    if (!g_notify_host || !buf || len == 0) {
+        return;
+    }
+    EdgetxAudioChunkFn cb;
+    {
+        std::lock_guard<std::mutex> lock(g_notify_host->mutex);
+        cb = g_notify_host->audio_chunk;
+    }
+    if (!cb) {
+        return;
+    }
+    wasm_module_inst_t inst = wasm_runtime_get_module_inst(exec_env);
+    if (!inst) {
+        return;
+    }
+    const uint32_t wasm_off = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(buf));
+    void* native = wasm_runtime_addr_app_to_native(inst, wasm_off);
+    if (!native) {
+        return;
+    }
+    cb(static_cast<const uint8_t*>(native), len);
+}
 static void host_simu_trace(wasm_exec_env_t, const char*) {}
 static void host_simu_aux_serial_start(wasm_exec_env_t, uint32_t, uint32_t, uint32_t) {}
 static void host_simu_aux_serial_stop(wasm_exec_env_t, uint32_t) {}
@@ -471,6 +494,14 @@ bool edgetx_wasm_boot_complete(const EdgeTxWasmHost* host) {
         return false;
     }
     return argv[0] != 0;
+}
+
+void edgetx_wasm_set_audio_chunk_handler(EdgeTxWasmHost* host, EdgetxAudioChunkFn handler) {
+    if (!host) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(host->mutex);
+    host->audio_chunk = std::move(handler);
 }
 
 uint8_t edgetx_wasm_copy_outputs(EdgeTxWasmHost* host, int16_t* buf, uint8_t max_count) {

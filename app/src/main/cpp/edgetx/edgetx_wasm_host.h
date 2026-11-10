@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -39,3 +40,7 @@ bool edgetx_wasm_copy_lcd_rgb565(EdgeTxWasmHost* host, std::vector<uint8_t>* out
 uint8_t edgetx_wasm_copy_outputs(EdgeTxWasmHost* host, int16_t* buf, uint8_t max_count);
 
 bool edgetx_wasm_boot_complete(const EdgeTxWasmHost* host);
+
+using EdgetxAudioChunkFn = std::function<void(const uint8_t*, uint32_t)>;
+
+void edgetx_wasm_set_audio_chunk_handler(EdgeTxWasmHost* host, EdgetxAudioChunkFn handler);

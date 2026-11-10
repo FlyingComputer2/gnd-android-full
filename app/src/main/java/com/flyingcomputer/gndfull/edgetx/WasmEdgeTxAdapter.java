@@ -1,6 +1,8 @@
 package com.flyingcomputer.gndfull.edgetx;
 
 import android.content.Context;
+import com.flyingcomputer.gndfull.edgetx.audio.AudioTrackEdgeTxAudioAdapter;
+import com.flyingcomputer.gndfull.edgetx.audio.EdgeTxAudioAdapter;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -15,6 +17,7 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
     }
 
     private final Context context;
+    private final EdgeTxAudioAdapter audio;
     private final long handle;
     private volatile boolean running;
     private volatile String startFailure;
@@ -23,7 +26,12 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
     private int lcdH;
 
     public WasmEdgeTxAdapter(Context context) {
+        this(context, new AudioTrackEdgeTxAudioAdapter());
+    }
+
+    WasmEdgeTxAdapter(Context context, EdgeTxAudioAdapter audio) {
         this.context = context.getApplicationContext();
+        this.audio = audio;
         File wasm = ensureWasmOnDisk();
         File sdRoot = new File(context.getFilesDir(), "edgetx/sd");
         if (!sdRoot.mkdirs() && !sdRoot.isDirectory()) {
@@ -37,6 +45,9 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
         }
         lcdW = nativeLcdWidth(handle);
         lcdH = nativeLcdHeight(handle);
+        if (audio instanceof AudioTrackEdgeTxAudioAdapter player) {
+            nativeBindAudioSink(handle, player);
+        }
     }
 
     private File ensureWasmOnDisk() {
@@ -68,6 +79,7 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
         if (!nativeStart(handle, utcOffsetSec)) {
             throw new IllegalStateException("simuStart failed");
         }
+        audio.start();
         running = true;
     }
 
@@ -80,6 +92,7 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
     @Override
     public void stop() {
         nativeStop(handle);
+        audio.stop();
         running = false;
     }
 
@@ -243,4 +256,6 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
     private native byte[] nativeCopyLcdRgb565(long handle);
 
     private native int[] nativeCopyChannelOutputs(long handle);
+
+    private native void nativeBindAudioSink(long handle, AudioTrackEdgeTxAudioAdapter sink);
 }

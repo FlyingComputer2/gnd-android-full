@@ -156,17 +156,22 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                         },
                         false);
 
+        float density = getResources().getDisplayMetrics().density;
+        int padH = Math.round(density * 8f);
+        int padV = Math.round(density * 4f);
+        int keyStripH = Math.round(density * 40f);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(0xffeef1f3);
 
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
-        topBar.setPadding(24, 16, 24, 16);
+        topBar.setPadding(padH, padV, padH, padV);
         topBar.setBackgroundColor(0xffdce5eb);
         TextView title = new TextView(this);
         title.setText("FLYING COMPUTER II");
-        title.setTextSize(16f);
+        title.setTextSize(13f);
         topBar.addView(
                 title,
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -204,17 +209,21 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
         powerButton = new Button(this);
         powerButton.setText("PWR");
+        powerButton.setTextSize(12f);
+        powerButton.setMinHeight(Math.round(density * 32f));
         powerButton.setOnClickListener(v -> toggleRadioPower());
         topBar.addView(powerButton);
 
         Button menu = new Button(this);
         menu.setText("☰");
+        menu.setTextSize(14f);
+        menu.setMinHeight(Math.round(density * 32f));
         menu.setOnClickListener(v -> openMenu());
         topBar.addView(menu);
         root.addView(topBar);
 
         FrameLayout videoPane = new FrameLayout(this);
-        int videoHeight = (int) (getResources().getDisplayMetrics().density * 220);
+        int videoHeight = Math.round(density * 220f);
         videoSurface = new SurfaceView(this);
         videoSurface.getHolder().addCallback(this);
         videoPane.addView(
@@ -237,32 +246,28 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, videoHeight));
 
+        lcdView = new EdgeTxLcdView(this, null);
+        lcdView.bind(control.adapter());
+        edgeTxUi.wireLcdTouch(lcdView);
+        root.addView(
+                lcdView,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.4f));
+
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
-        nav.setPadding(8, 8, 8, 8);
+        nav.setPadding(padH, padV, padH, padV);
         nav.setBackgroundColor(0xffe7edf0);
         edgeTxUi.wireNavRow(
                 nav,
                 new EdgeTxKey[] {
-                    EdgeTxKey.SYS,
-                    EdgeTxKey.LEFT,
-                    EdgeTxKey.UP,
-                    EdgeTxKey.ENTER,
-                    EdgeTxKey.DOWN,
-                    EdgeTxKey.RIGHT,
-                    EdgeTxKey.MDL
+                    EdgeTxKey.RTN, EdgeTxKey.ENTER, EdgeTxKey.TELE, EdgeTxKey.PAGE_UP
                 },
-                new String[] {"SYS", "◀", "▲", "●", "▼", "▶", "MDL"});
-        root.addView(nav);
-
-        lcdView = new EdgeTxLcdView(this, null);
-        lcdView.bind(control.adapter());
-        edgeTxUi.wireLcdTouch(lcdView);
-        int lcdHeight = (int) (getResources().getDisplayMetrics().density * 180);
+                new String[] {"RTN", "ENT", "TELE", "PAGE"});
         root.addView(
-                lcdView,
+                nav,
                 new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, lcdHeight));
+                        ViewGroup.LayoutParams.MATCH_PARENT, keyStripH));
 
         SwitchStripView upper = new SwitchStripView(this, null);
         upper.setLabels(new String[] {"SE", "SF", "SG", "SH"});
@@ -300,12 +305,14 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                         ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         statusBar = new TextView(this);
-        statusBar.setPadding(20, 12, 20, 12);
+        statusBar.setPadding(padH, padV, padH, padV);
         statusBar.setBackgroundColor(0x99000000);
         statusBar.setTextColor(0xffffffff);
+        statusBar.setTextSize(11f);
         root.addView(statusBar);
 
         setContentView(root);
+        applySystemBarInsets(root);
         showStatus(
                 "EdgeTX ["
                         + EdgeTxAdapterFactory.describe(edgeTx)
@@ -324,6 +331,20 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         } else {
             registerReceiver(usbEvents, filter);
         }
+    }
+
+    private void applySystemBarInsets(View root) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getWindow().setDecorFitsSystemWindows(false);
+        }
+        root.setOnApplyWindowInsetsListener(
+                (v, insets) -> {
+                    int top = insets.getSystemWindowInsetTop();
+                    int bottom = insets.getSystemWindowInsetBottom();
+                    v.setPadding(0, top, 0, bottom);
+                    return insets;
+                });
+        root.requestApplyInsets();
     }
 
     private void openMenu() {

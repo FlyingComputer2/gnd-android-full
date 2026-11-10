@@ -75,10 +75,15 @@ public final class EdgeTxUiWire {
     }
 
     public void wireNavRow(LinearLayout nav, EdgeTxKey[] keys, String[] labels) {
+        float density = nav.getResources().getDisplayMetrics().density;
+        int h = Math.round(density * 36f);
         for (int i = 0; i < labels.length; i++) {
             Button key = new Button(nav.getContext());
             key.setText(labels[i]);
             key.setAllCaps(false);
+            key.setTextSize(12f);
+            key.setMinHeight(h);
+            key.setPadding(4, 0, 4, 0);
             EdgeTxKey edgeKey = keys[i];
             key.setOnTouchListener(
                     (v, event) -> {
@@ -99,8 +104,7 @@ public final class EdgeTxUiWire {
                     });
             nav.addView(
                     key,
-                    new LinearLayout.LayoutParams(
-                            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                    new LinearLayout.LayoutParams(0, h, 1f));
         }
     }
 
