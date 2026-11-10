@@ -127,33 +127,6 @@ static bool lookup(EdgeTxWasmHost* host) {
     return host->fn_init && host->fn_start && host->fn_stop && host->fn_lcd_copy && host->fn_malloc && host->fn_free;
 }
 
-static void call_fatfs_paths(EdgeTxWasmHost* host) {
-    if (!host->fn_fatfs_paths || !host->exec_env) {
-        return;
-    }
-    // Match EdgeTX web: logical WASI roots for SD + settings (preopened by WAMR).
-    uint32_t sd_ptr = 0;
-    uint32_t set_ptr = 0;
-    if (!wasm_copy_cstr(host, "/", &sd_ptr) || !wasm_copy_cstr(host, "/", &set_ptr)) {
-        return;
-    }
-    uint32_t argv[2] = {sd_ptr, set_ptr};
-    wasm_runtime_call_wasm(host->exec_env, host->fn_fatfs_paths, 2, argv);
-    wasm_free(host, sd_ptr);
-    wasm_free(host, set_ptr);
-}
-
-static bool lcd_changed_locked(EdgeTxWasmHost* host) {
-    if (!host->fn_lcd_changed || !host->exec_env) {
-        return false;
-    }
-    uint32_t argv[1] = {0};
-    if (!wasm_runtime_call_wasm(host->exec_env, host->fn_lcd_changed, 0, argv)) {
-        return false;
-    }
-    return argv[0] != 0;
-}
-
 static bool wasm_call1(EdgeTxWasmHost* host, wasm_function_inst_t fn, uint32_t* ret) {
     uint32_t argv[1] = {0};
     if (!wasm_runtime_call_wasm(host->exec_env, fn, 0, argv)) {
