@@ -3,6 +3,12 @@ project(gndfull_native LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# 16 KB ELF segment alignment (Samsung / Android 15 page-size compatibility).
+if(ANDROID)
+    set(CMAKE_ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES ON)
+    add_link_options(-Wl,-z,max-page-size=16384)
+endif()
+
 include(FetchContent)
 
 FetchContent_Declare(vstreamer GIT_REPOSITORY https://github.com/FlyingComputer2/vstreamer.git
