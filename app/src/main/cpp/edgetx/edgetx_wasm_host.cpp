@@ -11,7 +11,7 @@
 #include <vector>
 
 struct EdgeTxWasmHost {
-    std::mutex mutex;
+    mutable std::mutex mutex;
     std::string last_error;
     std::vector<uint8_t> wasm_bytes;
     std::vector<uint8_t> lcd_host;
