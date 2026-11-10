@@ -3,6 +3,7 @@ package com.flyingcomputer.gndfull;
 import android.media.*;
 import android.os.Build;
 import android.view.Surface;
+import com.flyingcomputer.gndfull.video.VideoMetrics;
 import java.nio.ByteBuffer;
 import java.util.concurrent.*;
 
@@ -15,7 +16,12 @@ public final class VideoReceiver implements UsbProxy.Handler, AutoCloseable {
     private long nativeHandle;
     private boolean needKey=true;
     private long lastPts;
+    private final VideoMetrics metrics;
     public VideoReceiver(Surface surface) throws Exception {
+        this(surface, null);
+    }
+    public VideoReceiver(Surface surface, VideoMetrics metrics) throws Exception {
+        this.metrics = metrics;
         MediaFormat format=MediaFormat.createVideoFormat("video/avc",1920,1080);
         format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE,4*1024*1024);
         if(Build.VERSION.SDK_INT>=30) format.setInteger(MediaFormat.KEY_LOW_LATENCY,1);
@@ -34,7 +40,10 @@ public final class VideoReceiver implements UsbProxy.Handler, AutoCloseable {
     }
     @Override public String format() { return "rtp-h264-v1"; }
     @Override public synchronized void onPacket(UsbProxy.Lease packet,UsbProxy.Channel sender) {
-        try { if(running && nativeHandle!=0) nativeFeed(nativeHandle,packet.payload); }
+        try {
+            if(metrics!=null) metrics.onRtpPacket();
+            if(running && nativeHandle!=0) nativeFeed(nativeHandle,packet.payload);
+        }
         finally { packet.close(); }
     }
     // Called on the serialized native feed path. Never on the USB reader.
@@ -49,6 +58,7 @@ public final class VideoReceiver implements UsbProxy.Handler, AutoCloseable {
         input.clear(); input.put(annexB);
         lastPts=Math.max(lastPts+1,pts);
         decoder.queueInputBuffer(index,0,annexB.length,lastPts,0); needKey=false;
+        if(metrics!=null) metrics.onAccessUnit(key);
     }
     @Override public void close() {
         synchronized(this) {

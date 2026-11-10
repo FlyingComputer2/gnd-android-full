@@ -10,7 +10,8 @@ Android ground station with on-device EdgeTX UI, virtual gimbals/switches, and U
 | Fake EdgeTX adapter + JNI stub (`NativeEdgeTxAdapter`) | Implemented |
 | Pinned EdgeTX simulator cross-build | Not started — adapter API is ready |
 | USB RGP4 v2 video channel 0 (`rtp-h264-v1`) | Ported from [gnd-android](https://github.com/FlyingComputer2/gnd-android) |
-| RC/telemetry USB channel 2 | Not wired |
+| USB channel 2 `rc-v1` → rover_sample MSP `0x4201` @ 50 Hz | `RoverControlBridge` + `RcUsbHandler` |
+| Telemetry `0x4220` on OSD | `OsdPresenter` (USB measurement points) |
 | CLI / PLN modes | Marked TBA in UI |
 
 ## Build

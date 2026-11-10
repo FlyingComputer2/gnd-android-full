@@ -27,10 +27,16 @@ import android.widget.TextView;
 import com.flyingcomputer.gndfull.control.ControlSession;
 import com.flyingcomputer.gndfull.control.DrivingMode;
 import com.flyingcomputer.gndfull.control.DrivingState;
+import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapterFactory;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxInputSnapshot;
+import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
+import com.flyingcomputer.gndfull.transport.UsbGroundSession;
+import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
 import com.flyingcomputer.gndfull.ui.EdgeTxLcdView;
 import com.flyingcomputer.gndfull.ui.GimbalPadView;
+import com.flyingcomputer.gndfull.ui.OsdPresenter;
 import com.flyingcomputer.gndfull.ui.SwitchStripView;
+import com.flyingcomputer.gndfull.video.VideoMetrics;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -45,14 +51,14 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
     private UsbManager usbManager;
     private ControlSession control;
-    private UsbProxy proxy;
-    private VideoReceiver video;
+    private UsbGroundSession usbSession;
     private SurfaceView videoSurface;
     private TextView osd;
     private TextView statusBar;
     private EdgeTxLcdView lcdView;
     private volatile boolean surfaceReady;
     private volatile int currentDevice = -1;
+    private volatile RoverTelemFrame lastTelem;
 
     private final Runnable lcdRefresh =
             new Runnable() {
@@ -62,6 +68,25 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                         lcdView.refreshFrame();
                     }
                     ui.postDelayed(this, 100);
+                }
+            };
+
+    private final Runnable osdRefresh =
+            new Runnable() {
+                @Override
+                public void run() {
+                    VideoMetrics.Snapshot video =
+                            usbSession == null
+                                    ? null
+                                    : usbSession.videoMetrics().snapshot();
+                    osd.setText(
+                            OsdPresenter.format(
+                                    usbSession != null && currentDevice >= 0,
+                                    video,
+                                    lastTelem,
+                                    control.state(),
+                                    0));
+                    ui.postDelayed(this, 500);
                 }
             };
 
@@ -96,11 +121,33 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         usbManager = (UsbManager) getSystemService(USB_SERVICE);
-        try {
-            control = new ControlSession(false);
-        } catch (Exception e) {
-            throw new IllegalStateException("control session failed", e);
-        }
+        control = new ControlSession(EdgeTxAdapterFactory.Kind.FAKE);
+        usbSession =
+                new UsbGroundSession(
+                        control,
+                        new UsbGroundSession.Listener() {
+                            @Override
+                            public void onStatus(String message) {
+                                showStatus(message);
+                            }
+
+                            @Override
+                            public void onFailure(Exception error) {
+                                submit(
+                                        () -> {
+                                            disconnectUsb();
+                                            showStatus("USB error: " + error.getMessage());
+                                        });
+                            }
+
+                            @Override
+                            public void onTelemetry(RoverTelemFrame telem) {
+                                lastTelem = telem;
+                            }
+
+                            @Override
+                            public void onVideoMetrics(VideoMetrics metrics) {}
+                        });
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -181,10 +228,36 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout nav = new LinearLayout(this);
         nav.setPadding(8, 8, 8, 8);
         nav.setBackgroundColor(0xffe7edf0);
-        for (String label : new String[] {"SYS", "◀", "▲", "●", "▼", "▶", "MDL"}) {
+        EdgeTxKey[] keys =
+                new EdgeTxKey[] {
+                    EdgeTxKey.SYS,
+                    EdgeTxKey.LEFT,
+                    EdgeTxKey.UP,
+                    EdgeTxKey.ENTER,
+                    EdgeTxKey.DOWN,
+                    EdgeTxKey.RIGHT,
+                    EdgeTxKey.MDL
+                };
+        String[] labels = new String[] {"SYS", "◀", "▲", "●", "▼", "▶", "MDL"};
+        for (int i = 0; i < labels.length; i++) {
             Button key = new Button(this);
-            key.setText(label);
+            key.setText(labels[i]);
             key.setAllCaps(false);
+            EdgeTxKey edgeKey = keys[i];
+            key.setOnTouchListener(
+                    (v, event) -> {
+                        switch (event.getActionMasked()) {
+                            case android.view.MotionEvent.ACTION_DOWN:
+                                control.keyEvent(edgeKey, true);
+                                return true;
+                            case android.view.MotionEvent.ACTION_UP:
+                            case android.view.MotionEvent.ACTION_CANCEL:
+                                control.keyEvent(edgeKey, false);
+                                return true;
+                            default:
+                                return false;
+                        }
+                    });
             LinearLayout.LayoutParams lp =
                     new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
             nav.addView(key, lp);
@@ -205,6 +278,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 (index, position) -> {
                     switches[4 + index] = position;
                     publishInput();
+                    updateArmFromSwitches();
                 });
         root.addView(
                 upper,
@@ -218,6 +292,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 (index, position) -> {
                     switches[index] = position;
                     publishInput();
+                    updateArmFromSwitches();
                 });
         root.addView(
                 lower,
@@ -279,8 +354,9 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         root.addView(statusBar);
 
         setContentView(root);
-        showStatus("RC view — connect P4 USB3 for video (channel 0)");
+        showStatus("RC — USB ch0 video + ch2 rc-v1; arm with SA (neutral throttle)");
         ui.post(lcdRefresh);
+        ui.post(osdRefresh);
 
         IntentFilter filter = new IntentFilter(USB_PERMISSION);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
@@ -297,9 +373,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         new AlertDialog.Builder(this)
                 .setTitle("Connection & EdgeTX")
                 .setMessage(
-                        "USB video uses RGP4 v2 channel 0 (rtp-h264-v1).\n"
-                                + "RC channel 2 and clock channel 3 are not wired yet.\n"
-                                + "EdgeTX simulator integration is stub/fake in this baseline.")
+                        "USB ch0 rtp-h264-v1 video, ch2 rc-v1 MSP (rover_sample 0x4201).\n"
+                                + "EdgeTX: "
+                                + control.adapter().status().detail()
+                                + "\nArm: SA up with neutral throttle. Disarm: SA down.")
                 .setNeutralButton("Connect USB", (d, w) -> discoverUsb())
                 .setPositiveButton("Close", (d, w) -> control.setMenuOpen(false))
                 .setOnDismissListener(d -> control.setMenuOpen(false))
@@ -308,13 +385,14 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
     private void publishInput() {
         control.publishInput(new EdgeTxInputSnapshot(sticks, switches));
+    }
+
+    private void updateArmFromSwitches() {
+        if (usbSession != null && usbSession.controlBridge() != null) {
+            usbSession.controlBridge().updateSwitches(switches);
+        }
         DrivingState ds = control.state();
-        showStatus(
-                "Control: "
-                        + ds
-                        + "  ch1="
-                        + control.lastOutputs()[0]
-                        + "  (transport TBA)");
+        showStatus("Control: " + ds + "  ch1=" + control.lastOutputs()[0] + "  ch3=" + control.lastOutputs()[2]);
     }
 
     private void submit(Runnable work) {
@@ -359,26 +437,11 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                     if (!surfaceReady) {
                         return;
                     }
-                    showStatus("Connecting USB video…");
+                    showStatus("Connecting USB…");
                     currentDevice = device.getDeviceId();
                     try {
-                        video = new VideoReceiver(videoSurface.getHolder().getSurface());
-                        proxy =
-                                new UsbProxy(
-                                        error ->
-                                                submit(
-                                                        () -> {
-                                                            disconnectUsb();
-                                                            control.onUsbDisconnected();
-                                                            showStatus(
-                                                                    "USB error: " + error.getMessage());
-                                                        }));
-                        UsbProxy.Channel channel = proxy.registerHandler(0, video);
-                        proxy.connect(usbManager, device);
-                        channel.open(8);
-                        control.onUsbConnected();
-                        showStatus("Video ch0 open — RC output not enabled");
-                        runOnUiThread(() -> osd.setText("VIDEO: USB ch0 active"));
+                        usbSession.connect(usbManager, device, videoSurface.getHolder().getSurface());
+                        updateArmFromSwitches();
                     } catch (Exception e) {
                         disconnectUsb();
                         showStatus("Connection failed: " + e.getMessage());
@@ -387,14 +450,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void disconnectUsb() {
-        if (proxy != null) {
-            proxy.close();
-            proxy = null;
+        if (usbSession != null) {
+            usbSession.close();
         }
-        if (video != null) {
-            video.close();
-            video = null;
-        }
+        lastTelem = null;
         currentDevice = -1;
     }
 
@@ -416,6 +475,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     @Override
     public void onDestroy() {
         ui.removeCallbacks(lcdRefresh);
+        ui.removeCallbacks(osdRefresh);
         unregisterReceiver(usbEvents);
         surfaceReady = false;
         submit(this::disconnectUsb);

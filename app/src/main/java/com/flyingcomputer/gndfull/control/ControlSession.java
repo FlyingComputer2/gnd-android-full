@@ -1,10 +1,14 @@
 package com.flyingcomputer.gndfull.control;
 
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
+import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapterFactory;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxInputSnapshot;
-import com.flyingcomputer.gndfull.edgetx.FakeEdgeTxAdapter;
+import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Owns EdgeTX lifecycle and publishes the latest output snapshot. */
@@ -14,24 +18,32 @@ public final class ControlSession implements AutoCloseable {
         t.setDaemon(true);
         return t;
     });
+    private final ScheduledExecutorService tick =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "edgetx-tick");
+                t.setDaemon(true);
+                return t;
+            });
     private final EdgeTxAdapter adapter;
     private final AtomicReference<EdgeTxInputSnapshot> pending =
             new AtomicReference<>(EdgeTxInputSnapshot.neutral());
     private volatile DrivingState state = DrivingState.INACTIVE;
     private volatile int[] lastOutputs = new int[16];
     private volatile boolean menuBlocksDriving;
+    private volatile ScheduledFuture<?> refresh;
 
-    public ControlSession(boolean useNativeStub) throws Exception {
-        adapter = useNativeStub ? new com.flyingcomputer.gndfull.edgetx.NativeEdgeTxAdapter()
-                : new FakeEdgeTxAdapter();
+    public ControlSession(EdgeTxAdapterFactory.Kind kind) {
+        adapter = EdgeTxAdapterFactory.create(kind);
         loop.execute(
                 () -> {
                     try {
                         adapter.start();
+                        refreshOutputs();
                     } catch (Exception e) {
                         throw new IllegalStateException("EdgeTX start failed", e);
                     }
                 });
+        refresh = tick.scheduleAtFixedRate(() -> loop.execute(this::refreshOutputs), 50, 50, TimeUnit.MILLISECONDS);
     }
 
     public DrivingState state() {
@@ -42,10 +54,25 @@ public final class ControlSession implements AutoCloseable {
         menuBlocksDriving = open;
         if (open) {
             state = DrivingState.INACTIVE;
+            disarm();
             publishNeutral();
-        } else if (state == DrivingState.INACTIVE) {
+        } else if (state == DrivingState.INACTIVE || state == DrivingState.FAILSAFE) {
             state = DrivingState.READY;
         }
+    }
+
+    public void requestArm() {
+        if (menuBlocksDriving || state == DrivingState.FAILSAFE) {
+            return;
+        }
+        state = DrivingState.ARMED;
+    }
+
+    public void disarm() {
+        if (state == DrivingState.ARMED) {
+            state = DrivingState.READY;
+        }
+        publishNeutral();
     }
 
     public void publishInput(EdgeTxInputSnapshot snapshot) {
@@ -57,7 +84,19 @@ public final class ControlSession implements AutoCloseable {
         loop.execute(
                 () -> {
                     adapter.submitInput(snapshot);
-                    lastOutputs = adapter.copyMixedOutputs();
+                    refreshOutputs();
+                });
+    }
+
+    public void keyEvent(EdgeTxKey key, boolean down) {
+        loop.execute(
+                () -> {
+                    if (down) {
+                        adapter.keyDown(key);
+                    } else {
+                        adapter.keyUp(key);
+                    }
+                    refreshOutputs();
                 });
     }
 
@@ -70,7 +109,7 @@ public final class ControlSession implements AutoCloseable {
     }
 
     public void onUsbConnected() {
-        if (!menuBlocksDriving) {
+        if (!menuBlocksDriving && state != DrivingState.FAILSAFE) {
             state = DrivingState.READY;
         }
     }
@@ -84,12 +123,20 @@ public final class ControlSession implements AutoCloseable {
         loop.execute(
                 () -> {
                     adapter.submitInput(EdgeTxInputSnapshot.neutral());
-                    lastOutputs = adapter.copyMixedOutputs();
+                    refreshOutputs();
                 });
+    }
+
+    private void refreshOutputs() {
+        lastOutputs = adapter.copyMixedOutputs();
     }
 
     @Override
     public void close() {
+        if (refresh != null) {
+            refresh.cancel(true);
+        }
+        tick.shutdownNow();
         loop.execute(
                 () -> {
                     adapter.stop();

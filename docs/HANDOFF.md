@@ -1,22 +1,27 @@
-# Handoff — milestone 0
+# Handoff
 
-## Delivered
+## Wired adapters (main)
 
-1. New Android app `com.flyingcomputer.gndfull` with portrait RC shell matching the planning SVG structure.
-2. `EdgeTxAdapter` API, `FakeEdgeTxAdapter`, and `NativeEdgeTxAdapter` JNI stub in `gndfull_receiver`.
-3. `ControlSession` with menu/failsafe neutral publish hook (transport not connected).
-4. USB video stack copied from `gnd-android` (Wire, UsbProxy, VideoReceiver, native RTP depay).
+| Layer | Types | Role |
+| --- | --- | --- |
+| EdgeTX | `EdgeTxAdapterFactory`, `FakeEdgeTxAdapter`, `NativeEdgeTxAdapter` | Mixer/LCD seam; fake default, JNI stub selectable |
+| Control | `ControlSession` | 20 ms refresh, arm/disarm, menu failsafe, key events |
+| RC map | `EdgeTxOutputMapper`, `RoverRcFrame` | CH1/CH3 → steer/thr; SA arm; MSP 0x4201 |
+| MSP | `MspV2` | DVB-S2 CRC encode/decode |
+| USB | `UsbGroundSession`, `RcUsbHandler` | ch0 video + ch2 `rc-v1` on one `UsbProxy` |
+| Publish | `RoverControlBridge` | 50 Hz RC over USB when ch2 open |
+| Video OSD | `VideoMetrics`, `OsdPresenter` | RTP/AU counters + USB telemetry labels |
 
-## Next (per aidocs milestones)
+## Arm policy (bench)
 
-1. Pin EdgeTX commit and prove `arm64-v8a` simulator build behind `NativeEdgeTxAdapter`.
-2. Hardware spike: USB video on target phone + P4.
-3. Resolve P4 channel-2 MSP RC contract; map `copyMixedOutputs()` to rover steering/throttle with arming state machine.
-4. OSD metrics with explicit measurement points; clock USB channel 3 contract.
+SA up (lower row) with neutral throttle transitions `READY` → `ARMED`. SA down disarms. Menu open forces neutral/disarm. USB drop → `FAILSAFE`.
 
-## Known gaps
+## Not done
 
-- No Gradle wrapper checked in (same as `gnd-android`); CI uses `gradle/actions/setup-gradle`.
-- Spinner shows RC/CLI/PLN but only RC is functional.
-- EdgeTX keys and LCD touch are visual only.
-- `ControlSession` uses fake adapter by default (`useNativeStub=false` in `MainActivity`).
+- Real EdgeTX simulator linked behind `NativeEdgeTxAdapter`
+- USB clock channel 3
+- Configurable channel map UI
+
+## Tests
+
+`WireTest`, `FakeEdgeTxAdapterTest`, `MspV2Test`, `EdgeTxOutputMapperTest`, native `receiver_test`.
