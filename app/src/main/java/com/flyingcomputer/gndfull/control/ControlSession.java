@@ -130,10 +130,10 @@ public final class ControlSession implements AutoCloseable {
         if (open) {
             state = DrivingState.INACTIVE;
             disarm();
-            publishNeutral();
         } else if (state == DrivingState.INACTIVE || state == DrivingState.FAILSAFE) {
             state = DrivingState.READY;
         }
+        syncHardwareInput();
     }
 
     public void requestArm() {
@@ -147,20 +147,22 @@ public final class ControlSession implements AutoCloseable {
         if (state == DrivingState.ARMED) {
             state = DrivingState.READY;
         }
-        publishNeutral();
     }
 
+  /**
+   * Pushes stick/switch state into EdgeTX. FAILSAFE and the app hamburger gate rover output only,
+   * not the virtual radio used for model setup and mixer previews.
+   */
     public void publishInput(EdgeTxInputSnapshot snapshot) {
         pending.set(snapshot);
-        if (!radioPowered || menuBlocksDriving || state == DrivingState.FAILSAFE) {
+        if (!radioPowered) {
             publishNeutral();
             return;
         }
-        loop.execute(
-                () -> {
-                    adapter.submitInput(snapshot);
-                    refreshOutputs();
-                });
+        if (menuBlocksDriving) {
+            return;
+        }
+        syncHardwareInput(snapshot);
     }
 
     public void keyEvent(EdgeTxKey key, boolean down) {
@@ -191,7 +193,21 @@ public final class ControlSession implements AutoCloseable {
 
     public void onUsbDisconnected() {
         state = DrivingState.FAILSAFE;
-        publishNeutral();
+    }
+
+    private void syncHardwareInput() {
+        syncHardwareInput(pending.get());
+    }
+
+    private void syncHardwareInput(EdgeTxInputSnapshot snapshot) {
+        if (!radioPowered || menuBlocksDriving) {
+            return;
+        }
+        loop.execute(
+                () -> {
+                    adapter.submitInput(snapshot);
+                    refreshOutputs();
+                });
     }
 
     private void publishNeutral() {
