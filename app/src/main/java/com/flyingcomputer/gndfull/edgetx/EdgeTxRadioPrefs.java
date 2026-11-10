@@ -85,7 +85,6 @@ public final class EdgeTxRadioPrefs {
             next = body + suffix + "stickMode: " + stickMode + "\n";
         }
         writeUtf8(radioYaml, next);
-        Log.i(TAG, "set stickMode=" + stickMode + " in " + radioYaml.getAbsolutePath());
         return true;
     }
 
