@@ -6,7 +6,8 @@
 2. APK links `libgndfull_edgetx.so` (WAMR host + `WasmEdgeTxAdapter`)
 3. UI maps gimbals → analog LH/LV/RH/RV, switches → `simuSetSwitch` (-1/0/1), thin TX16S key strip (RTN/ENT/TELE/PAGE) → `simuSetKey`, LCD touch → `simuTouchDown/Up` (MDL/SYS via Quick Menu on LCD)
 4. EdgeTX audio: `simuQueueAudio` → `AudioTrackEdgeTxAudioAdapter` (32 kHz mono PCM16)
-5. `EdgeTxAdapterFactory.createAuto()` uses WASM when the asset exists, else `FakeEdgeTxAdapter`
+5. WAMR WASI: host SD dir is preopened with `map_dir_list` entry `/::<android files/edgetx/sd>`; `simuFatfsSetPaths` uses guest `/` (see `configure_wasi_preopens` in `edgetx_wasm_host.cpp`)
+6. `EdgeTxAdapterFactory.createAuto()` uses WASM when the asset exists, else `FakeEdgeTxAdapter`
 
 ## Deferred (per user)
 

@@ -2,6 +2,7 @@
 
 #include <wasm_export.h>
 
+#include <android/log.h>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -49,6 +50,10 @@ struct EdgeTxWasmHost {
     wasm_function_inst_t fn_boot_complete = nullptr;
     wasm_function_inst_t fn_lcd_changed = nullptr;
     EdgetxAudioChunkFn audio_chunk;
+    // Kept alive until module_inst is destroyed (wasm_runtime_set_wasi_args stores pointers only).
+    std::vector<std::string> wasi_dir_storage;
+    std::string fatfs_sd_guest = "/";
+    std::string fatfs_settings_guest = "/";
 };
 
 static EdgeTxWasmHost* g_notify_host = nullptr;
@@ -87,7 +92,11 @@ static void host_simu_queue_audio(wasm_exec_env_t exec_env, uint8_t* buf, uint32
     // WAMR passes a native pointer into WASM linear memory (same as EdgeTX Companion).
     cb(buf, len);
 }
-static void host_simu_trace(wasm_exec_env_t, const char*) {}
+static void host_simu_trace(wasm_exec_env_t, const char* text) {
+    if (text && text[0] != '\0') {
+        __android_log_print(ANDROID_LOG_DEBUG, "EdgeTxWasm", "%s", text);
+    }
+}
 static void host_simu_aux_serial_start(wasm_exec_env_t, uint32_t, uint32_t, uint32_t) {}
 static void host_simu_aux_serial_stop(wasm_exec_env_t, uint32_t) {}
 static void host_simu_aux_serial_baud(wasm_exec_env_t, uint32_t, uint32_t) {}
@@ -195,18 +204,60 @@ static bool wasm_copy_cstr(EdgeTxWasmHost* host, const char* text, uint32_t* out
     return true;
 }
 
+static bool configure_wasi_preopens(EdgeTxWasmHost* host, const char* sd_path,
+                                    const char* settings_path) {
+    if (!host || !host->module || !sd_path || sd_path[0] == '\0') {
+        return false;
+    }
+    host->wasi_dir_storage.clear();
+    host->fatfs_sd_guest = "/";
+    host->fatfs_settings_guest = "/";
+
+    const std::string sd_host = sd_path;
+    host->wasi_dir_storage.push_back(sd_host);
+    host->wasi_dir_storage.push_back("/::" + sd_host);
+
+    std::vector<const char*> dir_list = {host->wasi_dir_storage[0].c_str()};
+    std::vector<const char*> map_list = {host->wasi_dir_storage[1].c_str()};
+
+    const bool separate_settings =
+        settings_path && settings_path[0] != '\0' && std::string(settings_path) != sd_host;
+    if (separate_settings) {
+        const std::string settings_host = settings_path;
+        host->fatfs_settings_guest = "/settings";
+        host->wasi_dir_storage.push_back(settings_host);
+        host->wasi_dir_storage.push_back("/settings::" + settings_host);
+        dir_list.push_back(host->wasi_dir_storage[2].c_str());
+        map_list.push_back(host->wasi_dir_storage[3].c_str());
+    }
+
+    wasm_runtime_set_wasi_args(host->module, dir_list.data(),
+                               static_cast<uint32_t>(dir_list.size()), map_list.data(),
+                               static_cast<uint32_t>(map_list.size()), nullptr, 0, nullptr, 0);
+    __android_log_print(ANDROID_LOG_INFO, "EdgeTxWasm",
+                        "WASI preopen sd guest=%s settings guest=%s host=%s",
+                        host->fatfs_sd_guest.c_str(), host->fatfs_settings_guest.c_str(),
+                        sd_host.c_str());
+    return true;
+}
+
 static void call_fatfs_paths(EdgeTxWasmHost* host) {
     if (!host->fn_fatfs_paths || !host->exec_env) {
         return;
     }
-    // Match EdgeTX web: logical WASI roots for SD + settings (preopened by WAMR).
     uint32_t sd_ptr = 0;
     uint32_t set_ptr = 0;
-    if (!wasm_copy_cstr(host, "/", &sd_ptr) || !wasm_copy_cstr(host, "/", &set_ptr)) {
+    if (!wasm_copy_cstr(host, host->fatfs_sd_guest.c_str(), &sd_ptr) ||
+        !wasm_copy_cstr(host, host->fatfs_settings_guest.c_str(), &set_ptr)) {
+        __android_log_print(ANDROID_LOG_WARN, "EdgeTxWasm", "simuFatfsSetPaths alloc failed");
         return;
     }
     uint32_t argv[2] = {sd_ptr, set_ptr};
-    wasm_runtime_call_wasm(host->exec_env, host->fn_fatfs_paths, 2, argv);
+    if (!wasm_runtime_call_wasm(host->exec_env, host->fn_fatfs_paths, 2, argv)) {
+        const char* ex = wasm_runtime_get_exception(host->module_inst);
+        __android_log_print(ANDROID_LOG_WARN, "EdgeTxWasm", "simuFatfsSetPaths failed: %s",
+                            ex ? ex : "unknown");
+    }
     wasm_free(host, sd_ptr);
     wasm_free(host, set_ptr);
 }
@@ -280,9 +331,14 @@ EdgeTxWasmHost* edgetx_wasm_create(const char* wasm_path, const char* sd_path,
         delete host;
         return nullptr;
     }
-    const char* dirs[2] = {sd_path, settings_path};
-    wasm_runtime_set_wasi_args(host->module, dirs, sd_path && settings_path ? 2 : 1, nullptr, 0,
-                               nullptr, 0, nullptr, 0);
+    if (!configure_wasi_preopens(host, sd_path, settings_path)) {
+        wasm_runtime_unload(host->module);
+        delete host;
+        if (err) {
+            *err = "WASI sd path missing";
+        }
+        return nullptr;
+    }
     host->module_inst =
         wasm_runtime_instantiate(host->module, 256 * 1024, 32 * 1024 * 1024, error_buf, sizeof(error_buf));
     if (!host->module_inst) {
