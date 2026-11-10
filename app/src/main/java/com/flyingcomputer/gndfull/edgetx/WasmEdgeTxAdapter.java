@@ -41,6 +41,10 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
 
     private File ensureWasmOnDisk() {
         File out = new File(context.getFilesDir(), "edgetx/edgetx-tx16s-simulator.wasm");
+        File parent = out.getParentFile();
+        if (parent != null && !parent.mkdirs() && !parent.isDirectory()) {
+            throw new IllegalStateException("cannot create EdgeTX files dir");
+        }
         if (out.exists() && out.length() > 0) {
             return out;
         }

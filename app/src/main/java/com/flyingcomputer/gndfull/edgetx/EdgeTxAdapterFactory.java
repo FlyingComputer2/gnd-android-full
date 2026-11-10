@@ -23,7 +23,10 @@ public final class EdgeTxAdapterFactory {
         try {
             return create(context, Kind.WASM);
         } catch (Exception e) {
-            android.util.Log.w("EdgeTxAdapterFactory", "WASM unavailable, using fake", e);
+            android.util.Log.e(
+                    "EdgeTxAdapterFactory",
+                    "WASM unavailable, using fake: " + e.getMessage(),
+                    e);
             return create(context, Kind.FAKE);
         }
     }
