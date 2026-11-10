@@ -11,7 +11,7 @@ EdgeTxWasmHost* edgetx_wasm_create(const char* wasm_path, const char* sd_path,
 
 void edgetx_wasm_destroy(EdgeTxWasmHost* host);
 
-bool edgetx_wasm_start(EdgeTxWasmHost* host, std::string* err);
+bool edgetx_wasm_start(EdgeTxWasmHost* host, int32_t utc_offset_sec, std::string* err);
 
 void edgetx_wasm_stop(EdgeTxWasmHost* host);
 

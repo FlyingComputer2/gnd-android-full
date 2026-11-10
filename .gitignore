@@ -5,3 +5,7 @@ local.properties
 *.iml
 .idea/
 native-build/
+build-apk*.log
+sdk-install.log
+ci-artifacts/
+

@@ -47,6 +47,7 @@ struct EdgeTxWasmHost {
     wasm_function_inst_t fn_free = nullptr;
     wasm_function_inst_t fn_create_defaults = nullptr;
     wasm_function_inst_t fn_boot_complete = nullptr;
+    wasm_function_inst_t fn_lcd_changed = nullptr;
 };
 
 static EdgeTxWasmHost* g_notify_host = nullptr;
@@ -122,7 +123,35 @@ static bool lookup(EdgeTxWasmHost* host) {
     host->fn_free = look("free");
     host->fn_create_defaults = look("simuCreateDefaults");
     host->fn_boot_complete = look("simuIsBootComplete");
+    host->fn_lcd_changed = look("simuLcdChanged");
     return host->fn_init && host->fn_start && host->fn_stop && host->fn_lcd_copy && host->fn_malloc && host->fn_free;
+}
+
+static void call_fatfs_paths(EdgeTxWasmHost* host) {
+    if (!host->fn_fatfs_paths || !host->exec_env) {
+        return;
+    }
+    // Match EdgeTX web: logical WASI roots for SD + settings (preopened by WAMR).
+    uint32_t sd_ptr = 0;
+    uint32_t set_ptr = 0;
+    if (!wasm_copy_cstr(host, "/", &sd_ptr) || !wasm_copy_cstr(host, "/", &set_ptr)) {
+        return;
+    }
+    uint32_t argv[2] = {sd_ptr, set_ptr};
+    wasm_runtime_call_wasm(host->exec_env, host->fn_fatfs_paths, 2, argv);
+    wasm_free(host, sd_ptr);
+    wasm_free(host, set_ptr);
+}
+
+static bool lcd_changed_locked(EdgeTxWasmHost* host) {
+    if (!host->fn_lcd_changed || !host->exec_env) {
+        return false;
+    }
+    uint32_t argv[1] = {0};
+    if (!wasm_runtime_call_wasm(host->exec_env, host->fn_lcd_changed, 0, argv)) {
+        return false;
+    }
+    return argv[0] != 0;
 }
 
 static bool wasm_call1(EdgeTxWasmHost* host, wasm_function_inst_t fn, uint32_t* ret) {
@@ -258,9 +287,6 @@ EdgeTxWasmHost* edgetx_wasm_create(const char* wasm_path, const char* sd_path,
         return nullptr;
     }
     wasm_runtime_call_wasm(host->exec_env, host->fn_init, 0, nullptr);
-    if (host->fn_create_defaults) {
-        wasm_runtime_call_wasm(host->exec_env, host->fn_create_defaults, 0, nullptr);
-    }
     uint32_t argv[1] = {0};
     if (host->fn_lcd_w) {
         wasm_runtime_call_wasm(host->exec_env, host->fn_lcd_w, 0, argv);
@@ -307,26 +333,27 @@ void edgetx_wasm_destroy(EdgeTxWasmHost* host) {
     delete host;
 }
 
-bool edgetx_wasm_start(EdgeTxWasmHost* host, std::string* err) {
+bool edgetx_wasm_start(EdgeTxWasmHost* host, int32_t utc_offset_sec, std::string* err) {
     if (!host || host->running) {
         return false;
     }
     std::lock_guard<std::mutex> lock(host->mutex);
-    uint32_t sd_ptr = 0;
-    uint32_t set_ptr = 0;
-    // paths set again at start for WASI
-    if (host->fn_fatfs_paths) {
-        // Paths already configured via wasi preopens; optional simuFatfsSetPaths skipped if unset.
+    call_fatfs_paths(host);
+    if (host->fn_create_defaults) {
+        wasm_runtime_call_wasm(host->exec_env, host->fn_create_defaults, 0, nullptr);
     }
-    uint32_t argv[2] = {1, 0};
+    uint32_t argv[2] = {1, static_cast<uint32_t>(utc_offset_sec)};
     if (!wasm_runtime_call_wasm(host->exec_env, host->fn_start, 2, argv)) {
+        const char* ex = wasm_runtime_get_exception(host->module_inst);
+        if (ex) {
+            host->last_error = ex;
+        }
         if (err) {
             *err = host->last_error.empty() ? "simuStart failed" : host->last_error;
         }
-        (void)sd_ptr;
-        (void)set_ptr;
         return false;
     }
+    refresh_lcd_locked(host);
     host->running = true;
     host->worker = std::thread([host]() {
         while (host->running.load()) {
@@ -359,7 +386,9 @@ void edgetx_wasm_pump(EdgeTxWasmHost* host) {
         return;
     }
     std::lock_guard<std::mutex> lock(host->mutex);
-    if (host->lcd_notify.exchange(false)) {
+    const bool notify = host->lcd_notify.exchange(false);
+    const bool changed = notify || lcd_changed_locked(host);
+    if (changed) {
         refresh_lcd_locked(host);
     }
 }

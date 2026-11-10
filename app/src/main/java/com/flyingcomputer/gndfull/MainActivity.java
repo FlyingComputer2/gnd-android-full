@@ -69,6 +69,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                     if (lcdView != null) {
                         lcdView.refreshFrame();
                     }
+                    refreshControlStatus();
                     ui.postDelayed(this, 100);
                 }
             };
@@ -306,9 +307,11 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
         setContentView(root);
         showStatus(
-                "EdgeTX: "
+                "EdgeTX ["
+                        + EdgeTxAdapterFactory.describe(edgeTx)
+                        + "]: "
                         + edgeTx.status().detail()
-                        + " — USB video optional (RC/S.Port later)");
+                        + " — splash may take ~30s");
         ui.post(lcdRefresh);
         ui.post(osdRefresh);
         updatePowerButton();

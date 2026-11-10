@@ -17,6 +17,7 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
     private final Context context;
     private final long handle;
     private volatile boolean running;
+    private volatile String startFailure;
     private byte[] lcdCache = new byte[0];
     private int lcdW;
     private int lcdH;
@@ -58,10 +59,18 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
 
     @Override
     public void start() {
-        if (!nativeStart(handle)) {
+        startFailure = null;
+        int utcOffsetSec = java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000;
+        if (!nativeStart(handle, utcOffsetSec)) {
             throw new IllegalStateException("simuStart failed");
         }
         running = true;
+    }
+
+  /** Set when {@link com.flyingcomputer.gndfull.control.ControlSession} fails async start. */
+    public void noteStartFailure(String message) {
+        startFailure = message;
+        running = false;
     }
 
     @Override
@@ -185,7 +194,11 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
 
     @Override
     public Status status() {
-        String detail = running ? (bootComplete() ? "edgetx-tx16s-wasm" : "edgetx booting…") : "radio off";
+        if (startFailure != null) {
+            return new Status(false, "edgetx start failed: " + startFailure);
+        }
+        String detail =
+                running ? (bootComplete() ? "edgetx-tx16s-wasm" : "edgetx booting…") : "radio off";
         return new Status(running, detail);
     }
 
@@ -199,7 +212,7 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
 
     private native void nativeDestroy(long handle);
 
-    private native boolean nativeStart(long handle);
+    private native boolean nativeStart(long handle, int utcOffsetSec);
 
     private native void nativeStop(long handle);
 

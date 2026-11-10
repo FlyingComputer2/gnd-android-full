@@ -43,9 +43,10 @@ Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeDestroy(JNIEnv*, 
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeStart(JNIEnv* env, jobject, jlong handle) {
+Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeStart(
+    JNIEnv* env, jobject, jlong handle, jint utcOffsetSec) {
     std::string err;
-    bool ok = edgetx_wasm_start(ptr(handle), &err);
+    bool ok = edgetx_wasm_start(ptr(handle), utcOffsetSec, &err);
     if (!ok) {
         env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), err.c_str());
     }

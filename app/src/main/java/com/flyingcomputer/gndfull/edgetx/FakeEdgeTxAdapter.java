@@ -79,7 +79,7 @@ public final class FakeEdgeTxAdapter implements EdgeTxAdapter {
 
     @Override
     public Status status() {
-        return new Status(running, "fake-edgetx");
+        return new Status(running, "fake-edgetx (no wasm)");
     }
 
     @Override

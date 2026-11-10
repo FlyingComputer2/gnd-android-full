@@ -3,6 +3,7 @@ package com.flyingcomputer.gndfull.control;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxInputSnapshot;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
+import android.util.Log;
 import com.flyingcomputer.gndfull.edgetx.WasmEdgeTxAdapter;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -41,7 +42,10 @@ public final class ControlSession implements AutoCloseable {
                         adapter.start();
                         refreshOutputs();
                     } catch (Exception e) {
-                        throw new IllegalStateException("EdgeTX start failed", e);
+                        Log.e("ControlSession", "EdgeTX start failed", e);
+                        if (adapter instanceof WasmEdgeTxAdapter wasm) {
+                            wasm.noteStartFailure(e.getMessage());
+                        }
                     }
                 });
         refresh =
