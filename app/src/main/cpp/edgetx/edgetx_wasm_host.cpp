@@ -52,6 +52,8 @@ struct EdgeTxWasmHost {
     EdgetxAudioChunkFn audio_chunk;
     // Kept alive until module_inst is destroyed (wasm_runtime_set_wasi_args stores pointers only).
     std::vector<std::string> wasi_dir_storage;
+    std::vector<const char*> wasi_dir_list;
+    std::vector<const char*> wasi_map_list;
     std::string fatfs_sd_guest = "/";
     std::string fatfs_settings_guest = "/";
 };
@@ -210,15 +212,16 @@ static bool configure_wasi_preopens(EdgeTxWasmHost* host, const char* sd_path,
         return false;
     }
     host->wasi_dir_storage.clear();
+    host->wasi_dir_list.clear();
+    host->wasi_map_list.clear();
     host->fatfs_sd_guest = "/";
     host->fatfs_settings_guest = "/";
 
     const std::string sd_host = sd_path;
     host->wasi_dir_storage.push_back(sd_host);
     host->wasi_dir_storage.push_back("/::" + sd_host);
-
-    std::vector<const char*> dir_list = {host->wasi_dir_storage[0].c_str()};
-    std::vector<const char*> map_list = {host->wasi_dir_storage[1].c_str()};
+    host->wasi_dir_list.push_back(host->wasi_dir_storage[0].c_str());
+    host->wasi_map_list.push_back(host->wasi_dir_storage[1].c_str());
 
     const bool separate_settings =
         settings_path && settings_path[0] != '\0' && std::string(settings_path) != sd_host;
@@ -227,13 +230,14 @@ static bool configure_wasi_preopens(EdgeTxWasmHost* host, const char* sd_path,
         host->fatfs_settings_guest = "/settings";
         host->wasi_dir_storage.push_back(settings_host);
         host->wasi_dir_storage.push_back("/settings::" + settings_host);
-        dir_list.push_back(host->wasi_dir_storage[2].c_str());
-        map_list.push_back(host->wasi_dir_storage[3].c_str());
+        host->wasi_dir_list.push_back(host->wasi_dir_storage[2].c_str());
+        host->wasi_map_list.push_back(host->wasi_dir_storage[3].c_str());
     }
 
-    wasm_runtime_set_wasi_args(host->module, dir_list.data(),
-                               static_cast<uint32_t>(dir_list.size()), map_list.data(),
-                               static_cast<uint32_t>(map_list.size()), nullptr, 0, nullptr, 0);
+    wasm_runtime_set_wasi_args(
+            host->module, host->wasi_dir_list.data(), static_cast<uint32_t>(host->wasi_dir_list.size()),
+            host->wasi_map_list.data(), static_cast<uint32_t>(host->wasi_map_list.size()), nullptr, 0,
+            nullptr, 0);
     __android_log_print(ANDROID_LOG_INFO, "EdgeTxWasm",
                         "WASI preopen sd guest=%s settings guest=%s host=%s",
                         host->fatfs_sd_guest.c_str(), host->fatfs_settings_guest.c_str(),

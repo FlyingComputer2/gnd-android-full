@@ -38,7 +38,6 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
         this.context = context.getApplicationContext();
         this.audio = audio;
         File wasm = ensureWasmOnDisk();
-        File sdRoot;
         File sd;
         try {
             sd = EdgeTxSdSeedInstaller.ensureSdRoot(context);
@@ -48,7 +47,7 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
         this.sdRoot = sd;
         handle =
                 nativeCreate(
-                        sd.getAbsolutePath(), sd.getAbsolutePath(), sd.getAbsolutePath());
+                        wasm.getAbsolutePath(), sd.getAbsolutePath(), sd.getAbsolutePath());
         if (handle == 0) {
             throw new IllegalStateException("EdgeTX wasm load failed");
         }
