@@ -6,8 +6,8 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.Arrays;
 
-/** EdgeTX TX16S simulator via WAMR (real LCD + mixer when wasm asset is present). */
-public final class WasmEdgeTxAdapter implements EdgeTxAdapter {
+/** EdgeTX TX16S simulator via WAMR. */
+public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
     private static final String WASM_ASSET = "edgetx/edgetx-tx16s-simulator.wasm";
 
     static {
@@ -28,9 +28,11 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter {
         if (!sdRoot.mkdirs() && !sdRoot.isDirectory()) {
             throw new IllegalStateException("cannot create EdgeTX sd dir");
         }
-        handle = nativeCreate(wasm.getAbsolutePath(), sdRoot.getAbsolutePath(), sdRoot.getAbsolutePath());
+        handle =
+                nativeCreate(
+                        wasm.getAbsolutePath(), sdRoot.getAbsolutePath(), sdRoot.getAbsolutePath());
         if (handle == 0) {
-            throw new IllegalStateException("EdgeTX wasm load failed — run scripts/build-edgetx-wasm.sh");
+            throw new IllegalStateException("EdgeTX wasm load failed");
         }
         lcdW = nativeLcdWidth(handle);
         lcdH = nativeLcdHeight(handle);
@@ -57,7 +59,7 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter {
     @Override
     public void start() {
         if (!nativeStart(handle)) {
-            throw new IllegalStateException(nativeLastError(handle));
+            throw new IllegalStateException("simuStart failed");
         }
         running = true;
     }
@@ -69,26 +71,81 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter {
     }
 
     @Override
+    public void radioPowerOff() {
+        stop();
+    }
+
+    @Override
+    public void radioPowerOn() throws Exception {
+        start();
+    }
+
+    @Override
+    public boolean radioPowered() {
+        return running;
+    }
+
+    @Override
     public void submitInput(EdgeTxInputSnapshot input) {
+        if (!running) {
+            return;
+        }
         int[] sticks = input.sticks();
         nativeSetAnalog(handle, Tx16InputMap.ANALOG_LH, Tx16InputMap.stickToEdgeTxPerMille(sticks[0]));
-        nativeSetAnalog(handle, Tx16InputMap.ANALOG_LV, Tx16InputMap.stickToEdgeTxPerMille(sticks[1]));
-        nativeSetAnalog(handle, Tx16InputMap.ANALOG_RH, Tx16InputMap.stickToEdgeTxPerMille(sticks[2]));
+        nativeSetAnalog(
+                handle,
+                Tx16InputMap.ANALOG_LV,
+                Tx16InputMap.stickY(sticks[1], Tx16InputMap.ANALOG_LV));
         nativeSetAnalog(handle, Tx16InputMap.ANALOG_RV, Tx16InputMap.stickToEdgeTxPerMille(sticks[3]));
+        nativeSetAnalog(
+                handle, Tx16InputMap.ANALOG_RH, Tx16InputMap.stickY(sticks[2], Tx16InputMap.ANALOG_RH));
         int[] sw = input.switches();
         for (int i = 0; i < sw.length && i < 8; i++) {
-            nativeSetSwitch(handle, i, sw[i]);
+            nativeSetSwitch(handle, i, Tx16InputMap.switchToFirmware(i, sw[i]));
         }
     }
 
     @Override
     public void keyDown(EdgeTxKey key) {
-        nativeSetKey(handle, mapKey(key), true);
+        if (!running) {
+            return;
+        }
+        nativeSetKey(handle, Tx16KeyMap.toFirmware(key), true);
     }
 
     @Override
     public void keyUp(EdgeTxKey key) {
-        nativeSetKey(handle, mapKey(key), false);
+        if (!running) {
+            return;
+        }
+        nativeSetKey(handle, Tx16KeyMap.toFirmware(key), false);
+    }
+
+    @Override
+    public void touchDown(int lcdX, int lcdY) {
+        if (!running) {
+            return;
+        }
+        nativeTouchDown(handle, lcdX, lcdY);
+    }
+
+    @Override
+    public void touchUp() {
+        if (!running) {
+            return;
+        }
+        nativeTouchUp(handle);
+    }
+
+    public void pump() {
+        if (!running) {
+            return;
+        }
+        nativePump(handle);
+    }
+
+    public boolean bootComplete() {
+        return running && nativeBootComplete(handle);
     }
 
     @Override
@@ -98,6 +155,9 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter {
 
     @Override
     public byte[] copyLcdFrameRgb565() {
+        if (!running) {
+            return lcdCache;
+        }
         byte[] frame = nativeCopyLcdRgb565(handle);
         if (frame == null || frame.length == 0) {
             return lcdCache;
@@ -109,6 +169,9 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter {
 
     @Override
     public int[] copyMixedOutputs() {
+        if (!running) {
+            return new int[16];
+        }
         int[] raw = nativeCopyChannelOutputs(handle);
         if (raw == null) {
             return new int[16];
@@ -122,37 +185,14 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter {
 
     @Override
     public Status status() {
-        return new Status(running, "edgetx-tx16s-wasm");
+        String detail = running ? (bootComplete() ? "edgetx-tx16s-wasm" : "edgetx booting…") : "radio off";
+        return new Status(running, detail);
     }
 
     @Override
     public void close() {
         stop();
         nativeDestroy(handle);
-    }
-
-    public void touchDown(int x, int y) {
-        nativeTouchDown(handle, x, y);
-    }
-
-    public void touchUp() {
-        nativeTouchUp(handle);
-    }
-
-    public void pump() {
-        nativePump(handle);
-    }
-
-    private static int mapKey(EdgeTxKey key) {
-        return switch (key) {
-            case SYS -> 0;
-            case MDL -> 1;
-            case UP -> 2;
-            case DOWN -> 3;
-            case LEFT -> 4;
-            case RIGHT -> 5;
-            case ENTER -> 6;
-        };
     }
 
     private native long nativeCreate(String wasmPath, String sdPath, String settingsPath);
@@ -164,6 +204,8 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter {
     private native void nativeStop(long handle);
 
     private native void nativePump(long handle);
+
+    private native boolean nativeBootComplete(long handle);
 
     private native void nativeSetAnalog(long handle, int index, int value);
 
@@ -184,6 +226,4 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter {
     private native byte[] nativeCopyLcdRgb565(long handle);
 
     private native int[] nativeCopyChannelOutputs(long handle);
-
-    private native String nativeLastError(long handle);
 }

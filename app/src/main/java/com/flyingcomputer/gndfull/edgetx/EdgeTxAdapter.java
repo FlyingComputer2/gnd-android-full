@@ -10,6 +10,19 @@ public interface EdgeTxAdapter extends AutoCloseable {
 
     void stop();
 
+    /** True when {@code simuStart} / fake mixer is active (radio power on). */
+    default boolean radioPowered() {
+        return status().running();
+    }
+
+    default void radioPowerOn() throws Exception {
+        start();
+    }
+
+    default void radioPowerOff() {
+        stop();
+    }
+
     /** Full stick and switch snapshot; values are adapter-defined units. */
     void submitInput(EdgeTxInputSnapshot input);
 

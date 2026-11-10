@@ -48,6 +48,7 @@ struct EdgeTxWasmHost {
     wasm_function_inst_t fn_malloc = nullptr;
     wasm_function_inst_t fn_free = nullptr;
     wasm_function_inst_t fn_create_defaults = nullptr;
+    wasm_function_inst_t fn_boot_complete = nullptr;
 };
 
 static EdgeTxWasmHost* g_notify_host = nullptr;
@@ -122,6 +123,7 @@ static bool lookup(EdgeTxWasmHost* host) {
     host->fn_malloc = look("malloc");
     host->fn_free = look("free");
     host->fn_create_defaults = look("simuCreateDefaults");
+    host->fn_boot_complete = look("simuIsBootComplete");
     return host->fn_init && host->fn_start && host->fn_stop && host->fn_lcd_copy && host->fn_malloc && host->fn_free;
 }
 
@@ -429,6 +431,18 @@ bool edgetx_wasm_copy_lcd_rgb565(EdgeTxWasmHost* host, std::vector<uint8_t>* out
     std::lock_guard<std::mutex> lock(host->mutex);
     *out = host->lcd_host;
     return !out->empty();
+}
+
+bool edgetx_wasm_boot_complete(const EdgeTxWasmHost* host) {
+    if (!host || !host->running || !host->fn_boot_complete || !host->exec_env) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(host->mutex);
+    uint32_t argv[1] = {0};
+    if (!wasm_runtime_call_wasm(host->exec_env, host->fn_boot_complete, 0, argv)) {
+        return false;
+    }
+    return argv[0] != 0;
 }
 
 uint8_t edgetx_wasm_copy_outputs(EdgeTxWasmHost* host, int16_t* buf, uint8_t max_count) {

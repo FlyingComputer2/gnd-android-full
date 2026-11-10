@@ -29,13 +29,12 @@ import com.flyingcomputer.gndfull.control.DrivingMode;
 import com.flyingcomputer.gndfull.control.DrivingState;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapterFactory;
-import com.flyingcomputer.gndfull.edgetx.EdgeTxInputSnapshot;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
 import com.flyingcomputer.gndfull.edgetx.Tx16InputMap;
-import com.flyingcomputer.gndfull.edgetx.WasmEdgeTxAdapter;
 import com.flyingcomputer.gndfull.transport.UsbGroundSession;
 import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
 import com.flyingcomputer.gndfull.ui.EdgeTxLcdView;
+import com.flyingcomputer.gndfull.ui.EdgeTxUiWire;
 import com.flyingcomputer.gndfull.ui.GimbalPadView;
 import com.flyingcomputer.gndfull.ui.OsdPresenter;
 import com.flyingcomputer.gndfull.ui.SwitchStripView;
@@ -49,8 +48,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
     private final ExecutorService usbSetup = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private final int[] sticks = new int[4];
-    private final int[] switches = new int[8];
+    private EdgeTxUiWire edgeTxUi;
+    private Button powerButton;
 
     private UsbManager usbManager;
     private ControlSession control;
@@ -126,6 +125,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         usbManager = (UsbManager) getSystemService(USB_SERVICE);
         EdgeTxAdapter edgeTx = EdgeTxAdapterFactory.createAuto(this);
         control = new ControlSession(edgeTx);
+        edgeTxUi = new EdgeTxUiWire(control);
+        edgeTxUi.setOnInputChanged(this::refreshControlStatus);
         usbSession =
                 new UsbGroundSession(
                         control,
@@ -200,6 +201,11 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 });
         topBar.addView(mode);
 
+        powerButton = new Button(this);
+        powerButton.setText("PWR");
+        powerButton.setOnClickListener(v -> toggleRadioPower());
+        topBar.addView(powerButton);
+
         Button menu = new Button(this);
         menu.setText("☰");
         menu.setOnClickListener(v -> openMenu());
@@ -231,9 +237,11 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                         ViewGroup.LayoutParams.MATCH_PARENT, videoHeight));
 
         LinearLayout nav = new LinearLayout(this);
+        nav.setOrientation(LinearLayout.HORIZONTAL);
         nav.setPadding(8, 8, 8, 8);
         nav.setBackgroundColor(0xffe7edf0);
-        EdgeTxKey[] keys =
+        edgeTxUi.wireNavRow(
+                nav,
                 new EdgeTxKey[] {
                     EdgeTxKey.SYS,
                     EdgeTxKey.LEFT,
@@ -242,46 +250,13 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                     EdgeTxKey.DOWN,
                     EdgeTxKey.RIGHT,
                     EdgeTxKey.MDL
-                };
-        String[] labels = new String[] {"SYS", "◀", "▲", "●", "▼", "▶", "MDL"};
-        for (int i = 0; i < labels.length; i++) {
-            Button key = new Button(this);
-            key.setText(labels[i]);
-            key.setAllCaps(false);
-            EdgeTxKey edgeKey = keys[i];
-            key.setOnTouchListener(
-                    (v, event) -> {
-                        switch (event.getActionMasked()) {
-                            case android.view.MotionEvent.ACTION_DOWN:
-                                control.keyEvent(edgeKey, true);
-                                return true;
-                            case android.view.MotionEvent.ACTION_UP:
-                            case android.view.MotionEvent.ACTION_CANCEL:
-                                control.keyEvent(edgeKey, false);
-                                return true;
-                            default:
-                                return false;
-                        }
-                    });
-            LinearLayout.LayoutParams lp =
-                    new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            nav.addView(key, lp);
-        }
+                },
+                new String[] {"SYS", "◀", "▲", "●", "▼", "▶", "MDL"});
         root.addView(nav);
 
         lcdView = new EdgeTxLcdView(this, null);
         lcdView.bind(control.adapter());
-        lcdView.setTouchMapper(
-                (lcdX, lcdY, up) -> {
-                    EdgeTxAdapter a = control.adapter();
-                    if (a instanceof WasmEdgeTxAdapter wasm) {
-                        if (up) {
-                            wasm.touchUp();
-                        } else {
-                            wasm.touchDown(lcdX, lcdY);
-                        }
-                    }
-                });
+        edgeTxUi.wireLcdTouch(lcdView);
         int lcdHeight = (int) (getResources().getDisplayMetrics().density * 180);
         root.addView(
                 lcdView,
@@ -290,11 +265,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
         SwitchStripView upper = new SwitchStripView(this, null);
         upper.setLabels(new String[] {"SE", "SF", "SG", "SH"});
-        upper.setListener(
-                (index, position) -> {
-                    switches[Tx16InputMap.UPPER_SWITCH_INDICES[index]] = position;
-                    publishInput();
-                });
+        edgeTxUi.wireSwitchRow(upper, Tx16InputMap.UPPER_SWITCH_INDICES);
         root.addView(
                 upper,
                 new LinearLayout.LayoutParams(
@@ -303,11 +274,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
         SwitchStripView lower = new SwitchStripView(this, null);
         lower.setLabels(new String[] {"SD", "SC", "SB", "SA"});
-        lower.setListener(
-                (index, position) -> {
-                    switches[Tx16InputMap.LOWER_SWITCH_INDICES[index]] = position;
-                    publishInput();
-                });
+        edgeTxUi.wireSwitchRow(lower, Tx16InputMap.LOWER_SWITCH_INDICES);
         root.addView(
                 lower,
                 new LinearLayout.LayoutParams(
@@ -317,39 +284,9 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout gimbals = new LinearLayout(this);
         gimbals.setOrientation(LinearLayout.HORIZONTAL);
         GimbalPadView left = new GimbalPadView(this, null);
-        left.setListener(
-                new GimbalPadView.Listener() {
-                    @Override
-                    public void onAxis(int normX, int normY) {
-                        sticks[0] = normX;
-                        sticks[1] = normY;
-                        publishInput();
-                    }
-
-                    @Override
-                    public void onRelease() {
-                        sticks[0] = 0;
-                        sticks[1] = 0;
-                        publishInput();
-                    }
-                });
+        edgeTxUi.wireGimbal(left, true);
         GimbalPadView right = new GimbalPadView(this, null);
-        right.setListener(
-                new GimbalPadView.Listener() {
-                    @Override
-                    public void onAxis(int normX, int normY) {
-                        sticks[2] = normX;
-                        sticks[3] = normY;
-                        publishInput();
-                    }
-
-                    @Override
-                    public void onRelease() {
-                        sticks[2] = 0;
-                        sticks[3] = 0;
-                        publishInput();
-                    }
-                });
+        edgeTxUi.wireGimbal(right, false);
         gimbals.addView(
                 left,
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
@@ -374,6 +311,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                         + " — USB video optional (RC/S.Port later)");
         ui.post(lcdRefresh);
         ui.post(osdRefresh);
+        updatePowerButton();
 
         IntentFilter filter = new IntentFilter(USB_PERMISSION);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
@@ -400,9 +338,21 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 .show();
     }
 
-    private void publishInput() {
-        control.publishInput(new EdgeTxInputSnapshot(sticks, switches));
-        refreshControlStatus();
+    private void toggleRadioPower() {
+        try {
+            control.setRadioPower(!control.radioPowered());
+            updatePowerButton();
+            if (lcdView != null) {
+                lcdView.setRadioPowered(control.radioPowered());
+            }
+            refreshControlStatus();
+        } catch (Exception e) {
+            showStatus("Power failed: " + e.getMessage());
+        }
+    }
+
+    private void updatePowerButton() {
+        powerButton.setText(control.radioPowered() ? "PWR ●" : "PWR ○");
     }
 
     private void refreshControlStatus() {

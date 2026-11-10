@@ -34,7 +34,9 @@ public final class SwitchStripView extends View {
         this.labels = labels;
         for (int i = 0; i < maxPositions.length && i < labels.length; i++) {
             maxPositions[i] =
-                    com.flyingcomputer.gndfull.edgetx.Tx16InputMap.isTwoPosition(labels[i]) ? 2 : 3;
+                    com.flyingcomputer.gndfull.edgetx.Tx16InputMap.isTwoPositionLabel(labels[i])
+                            ? 2
+                            : 3;
         }
         invalidate();
     }

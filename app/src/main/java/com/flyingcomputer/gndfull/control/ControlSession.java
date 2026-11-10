@@ -30,6 +30,7 @@ public final class ControlSession implements AutoCloseable {
     private volatile DrivingState state = DrivingState.INACTIVE;
     private volatile int[] lastOutputs = new int[16];
     private volatile boolean menuBlocksDriving;
+    private volatile boolean radioPowered = true;
     private volatile ScheduledFuture<?> refresh;
 
     public ControlSession(EdgeTxAdapter adapter) {
@@ -63,6 +64,59 @@ public final class ControlSession implements AutoCloseable {
         return state;
     }
 
+    public boolean radioPowered() {
+        return radioPowered;
+    }
+
+    public boolean menuBlocksInput() {
+        return menuBlocksDriving;
+    }
+
+    public void setRadioPower(boolean on) throws Exception {
+        if (on == radioPowered) {
+            return;
+        }
+        radioPowered = on;
+        loop.execute(
+                () -> {
+                    try {
+                        if (on) {
+                            adapter.radioPowerOn();
+                        } else {
+                            adapter.radioPowerOff();
+                            publishNeutral();
+                            state = DrivingState.INACTIVE;
+                        }
+                    } catch (Exception e) {
+                        throw new IllegalStateException("radio power failed", e);
+                    }
+                });
+    }
+
+    public void touchDown(int x, int y) {
+        if (!radioPowered || menuBlocksDriving) {
+            return;
+        }
+        loop.execute(
+                () -> {
+                    if (adapter instanceof com.flyingcomputer.gndfull.edgetx.EdgeTxTouchSink touch) {
+                        touch.touchDown(x, y);
+                    }
+                });
+    }
+
+    public void touchUp() {
+        if (!radioPowered) {
+            return;
+        }
+        loop.execute(
+                () -> {
+                    if (adapter instanceof com.flyingcomputer.gndfull.edgetx.EdgeTxTouchSink touch) {
+                        touch.touchUp();
+                    }
+                });
+    }
+
     public void setMenuOpen(boolean open) {
         menuBlocksDriving = open;
         if (open) {
@@ -90,7 +144,7 @@ public final class ControlSession implements AutoCloseable {
 
     public void publishInput(EdgeTxInputSnapshot snapshot) {
         pending.set(snapshot);
-        if (menuBlocksDriving || state == DrivingState.FAILSAFE) {
+        if (!radioPowered || menuBlocksDriving || state == DrivingState.FAILSAFE) {
             publishNeutral();
             return;
         }

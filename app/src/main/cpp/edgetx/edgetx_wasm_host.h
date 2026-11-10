@@ -37,3 +37,5 @@ uint32_t edgetx_wasm_lcd_height(const EdgeTxWasmHost* host);
 bool edgetx_wasm_copy_lcd_rgb565(EdgeTxWasmHost* host, std::vector<uint8_t>* out);
 
 uint8_t edgetx_wasm_copy_outputs(EdgeTxWasmHost* host, int16_t* buf, uint8_t max_count);
+
+bool edgetx_wasm_boot_complete(const EdgeTxWasmHost* host);

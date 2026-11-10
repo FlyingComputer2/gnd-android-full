@@ -1,6 +1,6 @@
 package com.flyingcomputer.gndfull.edgetx;
 
-/** RadioMaster TX16S stick/switch indices (radios.json / wasm sim). */
+/** RadioMaster TX16S stick/switch indices (hw_defs/tx16s.json). */
 public final class Tx16InputMap {
     public static final int ANALOG_LH = 0;
     public static final int ANALOG_LV = 1;
@@ -16,21 +16,46 @@ public final class Tx16InputMap {
     public static final int SWITCH_SG = 6;
     public static final int SWITCH_SH = 7;
 
-    /** UI upper row SE..SH → firmware indices. */
     public static final int[] UPPER_SWITCH_INDICES =
             new int[] {SWITCH_SE, SWITCH_SF, SWITCH_SG, SWITCH_SH};
 
-    /** UI lower row SD..SA labels left-to-right map to SA..SD in sketch order. */
     public static final int[] LOWER_SWITCH_INDICES =
             new int[] {SWITCH_SD, SWITCH_SC, SWITCH_SB, SWITCH_SA};
 
-    /** 2-position (SF only on TX16S upper row). */
-    public static boolean isTwoPosition(String label) {
-        return "SF".equals(label);
+    public static boolean isTwoPositionSwitch(int firmwareIndex) {
+        return firmwareIndex == SWITCH_SF || firmwareIndex == SWITCH_SH;
     }
 
+    public static boolean isTwoPositionLabel(String label) {
+        return "SF".equals(label) || "SH".equals(label);
+    }
+
+    /** UI stick -1024..1024 → EdgeTX host units (Companion convention). */
     public static int stickToEdgeTxPerMille(int norm) {
         return Math.max(-1024, Math.min(1024, norm));
+    }
+
+    /** LV and RH are inverted in tx16s.json ADC inputs. */
+    public static int stickY(int normY, int analogIndex) {
+        int v = stickToEdgeTxPerMille(normY);
+        if (analogIndex == ANALOG_LV || analogIndex == ANALOG_RH) {
+            v = -v;
+        }
+        return v;
+    }
+
+    /** UI switch state → {@code simuSetSwitch} (-1 / 0 / 1). */
+    public static int switchToFirmware(int firmwareIndex, int uiState) {
+        if (isTwoPositionSwitch(firmwareIndex)) {
+            return uiState > 0 ? 1 : -1;
+        }
+        if (uiState < -1) {
+            return -1;
+        }
+        if (uiState > 1) {
+            return 1;
+        }
+        return uiState;
     }
 
     private Tx16InputMap() {}

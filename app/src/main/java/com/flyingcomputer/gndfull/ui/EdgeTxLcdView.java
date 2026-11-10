@@ -19,11 +19,19 @@ public final class EdgeTxLcdView extends View {
     private final Rect dst = new Rect();
     private EdgeTxAdapter adapter;
     private Bitmap frame;
+    private boolean radioPowered = true;
+    private final Paint powerOff = new Paint();
     private TouchMapper touchMapper;
 
     public EdgeTxLcdView(Context context, AttributeSet attrs) {
         super(context, attrs);
         background.setColor(0xffe8f0e8);
+        powerOff.setColor(0xcc000000);
+    }
+
+    public void setRadioPowered(boolean on) {
+        radioPowered = on;
+        invalidate();
     }
 
     public void bind(EdgeTxAdapter adapter) {
@@ -93,5 +101,8 @@ public final class EdgeTxLcdView extends View {
         int top = (getHeight() - dh) / 2;
         dst.set(left, top, left + dw, top + dh);
         canvas.drawBitmap(frame, null, dst, null);
+        if (!radioPowered) {
+            canvas.drawRect(0, 0, getWidth(), getHeight(), powerOff);
+        }
     }
 }
