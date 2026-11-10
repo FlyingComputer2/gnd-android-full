@@ -92,6 +92,7 @@ static bool ensure_wamr() {
     static bool inited = false;
     if (!inited) {
         RuntimeInitArgs args = {};
+        args.mem_alloc_type = Alloc_With_System_Allocator;
         if (!wasm_runtime_full_init(&args)) {
             return false;
         }
