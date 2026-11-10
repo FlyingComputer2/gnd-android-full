@@ -18,7 +18,7 @@ public final class UsbGroundSession implements AutoCloseable {
 
         void onTelemetry(RoverTelemFrame telem);
 
-        void onVideoMetrics(VideoMetrics metrics);
+        void onVideoMetrics(VideoMetrics.Snapshot metrics);
     }
 
     private final ControlSession control;

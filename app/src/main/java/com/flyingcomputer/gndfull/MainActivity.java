@@ -151,7 +151,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                             }
 
                             @Override
-                            public void onVideoMetrics(VideoMetrics metrics) {}
+                            public void onVideoMetrics(VideoMetrics.Snapshot metrics) {}
                         },
                         false);
 
