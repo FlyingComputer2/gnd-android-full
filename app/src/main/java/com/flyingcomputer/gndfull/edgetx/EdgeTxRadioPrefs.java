@@ -36,7 +36,10 @@ public final class EdgeTxRadioPrefs {
         NEEDS_POST_BOOT_PATCH,
     }
 
-    /** Patches {@code radio.yml} before wasm start when the file already exists. */
+    /**
+     * Existing {@code radio.yml} is user data and must not be rewritten (checksum).
+     * Stick mode is applied only after EdgeTX creates a new file on first boot.
+     */
     public static ApplyResult applyDefaults(File sdRoot) throws IOException {
         if (sdRoot == null || !sdRoot.isDirectory()) {
             throw new IOException("invalid sd root");
@@ -49,7 +52,6 @@ public final class EdgeTxRadioPrefs {
         if (!radio.isFile()) {
             return ApplyResult.NEEDS_POST_BOOT_PATCH;
         }
-        patchStickMode(radio, STICK_MODE_2);
         writeMarker(marker);
         return ApplyResult.READY;
     }

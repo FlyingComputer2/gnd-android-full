@@ -36,4 +36,23 @@ public class EdgeTxRadioPrefsTest {
         String body = new String(java.nio.file.Files.readAllBytes(radio.toPath()), StandardCharsets.UTF_8);
         assertEquals("header: 1\nstickMode: 1\n", body);
     }
+
+    @Test
+    public void applyDefaults_doesNotRewriteExistingRadioYaml() throws Exception {
+        File sd = folder.newFolder("sd");
+        File radioDir = new File(sd, "RADIO");
+        assertTrue(radioDir.mkdirs());
+        File radio = new File(radioDir, "radio.yml");
+        String original = "checksum: 12979\nstickMode: 0\n";
+        try (FileOutputStream fos = new FileOutputStream(radio)) {
+            fos.write(original.getBytes(StandardCharsets.UTF_8));
+        }
+        assertEquals(EdgeTxRadioPrefs.ApplyResult.READY, EdgeTxRadioPrefs.applyDefaults(sd));
+        String body = new String(java.nio.file.Files.readAllBytes(radio.toPath()), StandardCharsets.UTF_8);
+        assertEquals(original, body);
+        assertEquals(EdgeTxRadioPrefs.ApplyResult.NOOP, EdgeTxRadioPrefs.applyDefaults(sd));
+        assertEquals(
+                original,
+                new String(java.nio.file.Files.readAllBytes(radio.toPath()), StandardCharsets.UTF_8));
+    }
 }
