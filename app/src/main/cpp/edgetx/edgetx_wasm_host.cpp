@@ -1,7 +1,6 @@
 #include "edgetx_wasm_host.h"
 
 #include <wasm_export.h>
-#include <wasm_runtime_api.h>
 
 #include <atomic>
 #include <chrono>
