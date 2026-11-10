@@ -163,6 +163,12 @@ Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeSetKey(
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeSetTrim(
+    JNIEnv*, jobject, jlong handle, jint trim, jboolean down) {
+    edgetx_wasm_set_trim(ptr(handle), static_cast<uint8_t>(trim), down == JNI_TRUE);
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeTouchDown(
     JNIEnv*, jobject, jlong handle, jint x, jint y) {
     edgetx_wasm_touch_down(ptr(handle), static_cast<int16_t>(x), static_cast<int16_t>(y));

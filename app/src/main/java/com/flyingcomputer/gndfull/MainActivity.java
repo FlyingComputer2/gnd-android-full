@@ -12,6 +12,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -21,6 +22,7 @@ import android.view.WindowManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -31,6 +33,7 @@ import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapterFactory;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
 import com.flyingcomputer.gndfull.edgetx.Tx16InputMap;
+import com.flyingcomputer.gndfull.edgetx.Tx16TrimMap;
 import com.flyingcomputer.gndfull.transport.UsbGroundSession;
 import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
 import com.flyingcomputer.gndfull.ui.EdgeTxLcdView;
@@ -38,12 +41,14 @@ import com.flyingcomputer.gndfull.ui.EdgeTxUiWire;
 import com.flyingcomputer.gndfull.ui.GimbalPadView;
 import com.flyingcomputer.gndfull.ui.OsdPresenter;
 import com.flyingcomputer.gndfull.ui.SwitchStripView;
+import com.flyingcomputer.gndfull.ui.TrimPairView;
 import com.flyingcomputer.gndfull.video.VideoMetrics;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 
 public final class MainActivity extends Activity implements SurfaceHolder.Callback {
+    private static final String TAG = "GndFull";
     private static final String USB_PERMISSION = "com.flyingcomputer.gndfull.USB_PERMISSION";
 
     private final ExecutorService usbSetup = Executors.newSingleThreadExecutor();
@@ -56,7 +61,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     private UsbGroundSession usbSession;
     private SurfaceView videoSurface;
     private TextView osd;
-    private TextView statusBar;
     private EdgeTxLcdView lcdView;
     private volatile boolean surfaceReady;
     private volatile int currentDevice = -1;
@@ -69,7 +73,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                     if (lcdView != null) {
                         lcdView.refreshFrame();
                     }
-                    refreshControlStatus();
                     ui.postDelayed(this, 100);
                 }
             };
@@ -127,7 +130,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         EdgeTxAdapter edgeTx = EdgeTxAdapterFactory.createAuto(this);
         control = new ControlSession(edgeTx);
         edgeTxUi = new EdgeTxUiWire(control);
-        edgeTxUi.setOnInputChanged(this::refreshControlStatus);
         usbSession =
                 new UsbGroundSession(
                         control,
@@ -157,9 +159,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                         false);
 
         float density = getResources().getDisplayMetrics().density;
-        int padH = Math.round(density * 8f);
-        int padV = Math.round(density * 4f);
-        int keyStripH = Math.round(density * 40f);
+        int padH = Math.round(density * 6f);
+        int padV = Math.round(density * 2f);
+        int barH = Math.round(density * 28f);
+        int trimW = Math.round(density * 36f);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -167,14 +170,17 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
         topBar.setPadding(padH, padV, padH, padV);
         topBar.setBackgroundColor(0xffdce5eb);
-        TextView title = new TextView(this);
-        title.setText("FLYING COMPUTER II");
-        title.setTextSize(13f);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.ic_flyingcomputer);
+        logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        logo.setContentDescription("FlyingComputer2");
+        topBar.addView(logo, new LinearLayout.LayoutParams(barH, barH));
+        View spacer = new View(this);
         topBar.addView(
-                title,
-                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                spacer, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
 
         Spinner mode = new Spinner(this);
         String[] modeLabels = new String[DrivingMode.values().length];
@@ -187,6 +193,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                         android.R.layout.simple_spinner_dropdown_item,
                         modeLabels));
         mode.setSelection(DrivingMode.RC.ordinal());
+        mode.setPadding(0, 0, 0, 0);
         mode.setOnItemSelectedListener(
                 new android.widget.AdapterView.OnItemSelectedListener() {
                     @Override
@@ -209,18 +216,29 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
         powerButton = new Button(this);
         powerButton.setText("PWR");
-        powerButton.setTextSize(12f);
-        powerButton.setMinHeight(Math.round(density * 32f));
+        powerButton.setTextSize(11f);
+        powerButton.setMinHeight(barH);
+        powerButton.setPadding(padH, 0, padH, 0);
         powerButton.setOnClickListener(v -> toggleRadioPower());
-        topBar.addView(powerButton);
+        topBar.addView(
+                powerButton,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, barH));
 
         Button menu = new Button(this);
         menu.setText("☰");
-        menu.setTextSize(14f);
-        menu.setMinHeight(Math.round(density * 32f));
+        menu.setTextSize(12f);
+        menu.setMinHeight(barH);
+        menu.setPadding(padH, 0, padH, 0);
         menu.setOnClickListener(v -> openMenu());
-        topBar.addView(menu);
-        root.addView(topBar);
+        topBar.addView(
+                menu,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, barH));
+        root.addView(
+                topBar,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, barH + padV * 2));
 
         FrameLayout videoPane = new FrameLayout(this);
         int videoHeight = Math.round(density * 220f);
@@ -246,28 +264,29 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, videoHeight));
 
+        LinearLayout lcdPane = new LinearLayout(this);
+        lcdPane.setOrientation(LinearLayout.VERTICAL);
         lcdView = new EdgeTxLcdView(this, null);
         lcdView.bind(control.adapter());
         edgeTxUi.wireLcdTouch(lcdView);
-        root.addView(
+        lcdPane.addView(
                 lcdView,
                 new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.4f));
-
-        LinearLayout nav = new LinearLayout(this);
-        nav.setOrientation(LinearLayout.HORIZONTAL);
-        nav.setPadding(padH, padV, padH, padV);
-        nav.setBackgroundColor(0xffe7edf0);
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout lcdNav = new LinearLayout(this);
+        lcdNav.setOrientation(LinearLayout.HORIZONTAL);
+        lcdNav.setPadding(padH, padV, padH, padV);
+        lcdNav.setBackgroundColor(0xffe7edf0);
         edgeTxUi.wireNavRow(
-                nav,
-                new EdgeTxKey[] {
-                    EdgeTxKey.RTN, EdgeTxKey.ENTER, EdgeTxKey.TELE, EdgeTxKey.PAGE_UP
-                },
-                new String[] {"RTN", "ENT", "TELE", "PAGE"});
-        root.addView(
-                nav,
+                lcdNav, new EdgeTxKey[] {EdgeTxKey.RTN, EdgeTxKey.PAGE_UP}, new String[] {"RTN", "PAGE"});
+        lcdPane.addView(
+                lcdNav,
                 new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, keyStripH));
+                        ViewGroup.LayoutParams.MATCH_PARENT, Math.round(density * 36f)));
+        root.addView(
+                lcdPane,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         SwitchStripView upper = new SwitchStripView(this, null);
         upper.setLabels(new String[] {"SE", "SF", "SG", "SH"});
@@ -289,36 +308,25 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
         LinearLayout gimbals = new LinearLayout(this);
         gimbals.setOrientation(LinearLayout.HORIZONTAL);
-        GimbalPadView left = new GimbalPadView(this, null);
-        edgeTxUi.wireGimbal(left, true);
-        GimbalPadView right = new GimbalPadView(this, null);
-        edgeTxUi.wireGimbal(right, false);
         gimbals.addView(
-                left,
+                buildLeftStickCluster(trimW),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
         gimbals.addView(
-                right,
+                buildRightStickCluster(trimW),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
         root.addView(
                 gimbals,
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        statusBar = new TextView(this);
-        statusBar.setPadding(padH, padV, padH, padV);
-        statusBar.setBackgroundColor(0x99000000);
-        statusBar.setTextColor(0xffffffff);
-        statusBar.setTextSize(11f);
-        root.addView(statusBar);
-
         setContentView(root);
         applySystemBarInsets(root);
-        showStatus(
+        Log.i(
+                TAG,
                 "EdgeTX ["
                         + EdgeTxAdapterFactory.describe(edgeTx)
                         + "]: "
-                        + edgeTx.status().detail()
-                        + " — splash may take ~30s");
+                        + edgeTx.status().detail());
         ui.post(lcdRefresh);
         ui.post(osdRefresh);
         updatePowerButton();
@@ -331,6 +339,51 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         } else {
             registerReceiver(usbEvents, filter);
         }
+    }
+
+    private LinearLayout buildLeftStickCluster(int trimW) {
+        LinearLayout cluster = new LinearLayout(this);
+        cluster.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        TrimPairView lh =
+                new TrimPairView(this, true, "←", "→", Tx16TrimMap.LH_DEC, Tx16TrimMap.LH_INC);
+        edgeTxUi.wireTrimPair(lh);
+        GimbalPadView left = new GimbalPadView(this, null);
+        edgeTxUi.wireGimbal(left, true);
+        row.addView(lh, new LinearLayout.LayoutParams(trimW, ViewGroup.LayoutParams.MATCH_PARENT));
+        row.addView(
+                left, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        cluster.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        TrimPairView lv =
+                new TrimPairView(this, false, "↓", "↑", Tx16TrimMap.LV_DEC, Tx16TrimMap.LV_INC);
+        edgeTxUi.wireTrimPair(lv);
+        cluster.addView(
+                lv,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, Math.round(trimW * 0.9f)));
+        return cluster;
+    }
+
+    private LinearLayout buildRightStickCluster(int trimW) {
+        LinearLayout cluster = new LinearLayout(this);
+        cluster.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        TrimPairView rv =
+                new TrimPairView(this, true, "↑", "↓", Tx16TrimMap.RV_INC, Tx16TrimMap.RV_DEC);
+        edgeTxUi.wireTrimPair(rv);
+        GimbalPadView right = new GimbalPadView(this, null);
+        edgeTxUi.wireGimbal(right, false);
+        TrimPairView rh =
+                new TrimPairView(this, true, "←", "→", Tx16TrimMap.RH_DEC, Tx16TrimMap.RH_INC);
+        edgeTxUi.wireTrimPair(rh);
+        row.addView(rv, new LinearLayout.LayoutParams(trimW, ViewGroup.LayoutParams.MATCH_PARENT));
+        row.addView(
+                right, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        row.addView(rh, new LinearLayout.LayoutParams(trimW, ViewGroup.LayoutParams.MATCH_PARENT));
+        cluster.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        return cluster;
     }
 
     private void applySystemBarInsets(View root) {
@@ -369,7 +422,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             if (lcdView != null) {
                 lcdView.setRadioPowered(control.radioPowered());
             }
-            refreshControlStatus();
         } catch (Exception e) {
             showStatus("Power failed: " + e.getMessage());
         }
@@ -377,15 +429,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
     private void updatePowerButton() {
         powerButton.setText(control.radioPowered() ? "PWR ●" : "PWR ○");
-    }
-
-    private void refreshControlStatus() {
-        int[] outputs = control.lastOutputs();
-        String channels =
-                outputs.length >= 4
-                        ? ("  ch1=" + outputs[0] + "  ch3=" + outputs[2])
-                        : "";
-        showStatus(control.adapter().status().detail() + channels);
     }
 
     private void submit(Runnable work) {
@@ -397,7 +440,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void showStatus(String text) {
-        runOnUiThread(() -> statusBar.setText(text));
+        Log.i(TAG, text);
     }
 
     private void discoverUsb() {

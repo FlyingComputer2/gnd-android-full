@@ -34,6 +34,7 @@ struct EdgeTxWasmHost {
     wasm_function_inst_t fn_stop = nullptr;
     wasm_function_inst_t fn_is_running = nullptr;
     wasm_function_inst_t fn_set_key = nullptr;
+    wasm_function_inst_t fn_set_trim = nullptr;
     wasm_function_inst_t fn_set_switch = nullptr;
     wasm_function_inst_t fn_lcd_copy = nullptr;
     wasm_function_inst_t fn_lcd_flushed = nullptr;
@@ -138,6 +139,7 @@ static bool lookup(EdgeTxWasmHost* host) {
     host->fn_stop = look("simuStop");
     host->fn_is_running = look("simuIsRunning");
     host->fn_set_key = look("simuSetKey");
+    host->fn_set_trim = look("simuSetTrim");
     host->fn_set_switch = look("simuSetSwitch");
     host->fn_lcd_copy = look("simuLcdCopy");
     host->fn_lcd_flushed = look("simuLcdFlushed");
@@ -493,6 +495,15 @@ void edgetx_wasm_set_key(EdgeTxWasmHost* host, uint8_t key, bool state) {
     std::lock_guard<std::mutex> lock(host->mutex);
     uint32_t argv[2] = {key, state ? 1u : 0u};
     wasm_runtime_call_wasm(host->exec_env, host->fn_set_key, 2, argv);
+}
+
+void edgetx_wasm_set_trim(EdgeTxWasmHost* host, uint8_t trim, bool state) {
+    if (!host || !host->fn_set_trim || !host->exec_env) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(host->mutex);
+    uint32_t argv[2] = {trim, state ? 1u : 0u};
+    wasm_runtime_call_wasm(host->exec_env, host->fn_set_trim, 2, argv);
 }
 
 void edgetx_wasm_touch_down(EdgeTxWasmHost* host, int16_t x, int16_t y) {

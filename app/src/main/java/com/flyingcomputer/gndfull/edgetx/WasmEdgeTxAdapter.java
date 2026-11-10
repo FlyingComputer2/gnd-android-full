@@ -163,6 +163,22 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
     }
 
     @Override
+    public void trimDown(int trimIndex) {
+        if (!running) {
+            return;
+        }
+        nativeSetTrim(handle, trimIndex, true);
+    }
+
+    @Override
+    public void trimUp(int trimIndex) {
+        if (!running) {
+            return;
+        }
+        nativeSetTrim(handle, trimIndex, false);
+    }
+
+    @Override
     public void touchDown(int lcdX, int lcdY) {
         if (!running) {
             return;
@@ -281,6 +297,8 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
     private native void nativeSetSwitch(long handle, int index, int state);
 
     private native void nativeSetKey(long handle, int key, boolean down);
+
+    private native void nativeSetTrim(long handle, int trim, boolean down);
 
     private native void nativeTouchDown(long handle, int x, int y);
 

@@ -177,6 +177,18 @@ public final class ControlSession implements AutoCloseable {
                 });
     }
 
+    public void trimEvent(int trimIndex, boolean down) {
+        loop.execute(
+                () -> {
+                    if (down) {
+                        adapter.trimDown(trimIndex);
+                    } else {
+                        adapter.trimUp(trimIndex);
+                    }
+                    refreshOutputs();
+                });
+    }
+
     public int[] lastOutputs() {
         return lastOutputs.clone();
     }

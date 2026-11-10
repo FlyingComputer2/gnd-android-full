@@ -74,38 +74,54 @@ public final class EdgeTxUiWire {
                 });
     }
 
+    public Button createKeyButton(android.content.Context context, EdgeTxKey edgeKey, String label) {
+        float density = context.getResources().getDisplayMetrics().density;
+        int h = Math.round(density * 36f);
+        int w = Math.round(density * 52f);
+        Button key = new Button(context);
+        key.setText(label);
+        key.setAllCaps(false);
+        key.setTextSize(12f);
+        key.setMinHeight(h);
+        key.setMinWidth(w);
+        key.setPadding(4, 0, 4, 0);
+        key.setOnTouchListener(
+                (v, event) -> {
+                    if (!control.radioPowered()) {
+                        return true;
+                    }
+                    switch (event.getActionMasked()) {
+                        case MotionEvent.ACTION_DOWN:
+                            control.keyEvent(edgeKey, true);
+                            return true;
+                        case MotionEvent.ACTION_UP:
+                        case MotionEvent.ACTION_CANCEL:
+                            control.keyEvent(edgeKey, false);
+                            return true;
+                        default:
+                            return false;
+                    }
+                });
+        return key;
+    }
+
     public void wireNavRow(LinearLayout nav, EdgeTxKey[] keys, String[] labels) {
         float density = nav.getResources().getDisplayMetrics().density;
         int h = Math.round(density * 36f);
         for (int i = 0; i < labels.length; i++) {
-            Button key = new Button(nav.getContext());
-            key.setText(labels[i]);
-            key.setAllCaps(false);
-            key.setTextSize(12f);
-            key.setMinHeight(h);
-            key.setPadding(4, 0, 4, 0);
-            EdgeTxKey edgeKey = keys[i];
-            key.setOnTouchListener(
-                    (v, event) -> {
-                        if (!control.radioPowered()) {
-                            return true;
-                        }
-                        switch (event.getActionMasked()) {
-                            case MotionEvent.ACTION_DOWN:
-                                control.keyEvent(edgeKey, true);
-                                return true;
-                            case MotionEvent.ACTION_UP:
-                            case MotionEvent.ACTION_CANCEL:
-                                control.keyEvent(edgeKey, false);
-                                return true;
-                            default:
-                                return false;
-                        }
-                    });
-            nav.addView(
-                    key,
-                    new LinearLayout.LayoutParams(0, h, 1f));
+            Button key = createKeyButton(nav.getContext(), keys[i], labels[i]);
+            nav.addView(key, new LinearLayout.LayoutParams(0, h, 1f));
         }
+    }
+
+    public void wireTrimPair(TrimPairView pair) {
+        pair.setListener(
+                (index, down) -> {
+                    if (!control.radioPowered()) {
+                        return;
+                    }
+                    control.trimEvent(index, down);
+                });
     }
 
     public void wireLcdTouch(EdgeTxLcdView lcd) {

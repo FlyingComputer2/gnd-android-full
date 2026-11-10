@@ -24,6 +24,8 @@ void edgetx_wasm_set_switch(EdgeTxWasmHost* host, uint8_t index, int8_t state);
 
 void edgetx_wasm_set_key(EdgeTxWasmHost* host, uint8_t key, bool state);
 
+void edgetx_wasm_set_trim(EdgeTxWasmHost* host, uint8_t trim, bool state);
+
 void edgetx_wasm_touch_down(EdgeTxWasmHost* host, int16_t x, int16_t y);
 
 void edgetx_wasm_touch_up(EdgeTxWasmHost* host);
