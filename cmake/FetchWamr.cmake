@@ -1,16 +1,19 @@
 include(FetchContent)
 
 set(WAMR_BUILD_INTERP 1)
-set(WAMR_BUILD_FAST_INTERP 1)
+# Fast interp traps WASM EH (try/catch/throw) as "unsupported opcode".
+# EdgeTX wasm is built with exception-handling; use classic interp.
+set(WAMR_BUILD_FAST_INTERP 0)
 set(WAMR_BUILD_AOT 0)
 set(WAMR_BUILD_JIT 0)
 set(WAMR_BUILD_LIBC_BUILTIN 1)
 set(WAMR_BUILD_LIBC_WASI 1)
 set(WAMR_BUILD_LIB_WASI_THREADS 1)
+set(WAMR_BUILD_LIB_PTHREAD 1)
 set(WAMR_BUILD_SHARED_MEMORY 1)
 set(WAMR_BUILD_BULK_MEMORY 1)
 set(WAMR_BUILD_REF_TYPES 1)
-set(WAMR_BUILD_SIMD 0)
+set(WAMR_BUILD_SIMD 1)
 set(WAMR_BUILD_EXCE_HANDLING 1)
 set(WAMR_DISABLE_HW_BOUND_CHECK 1)
 

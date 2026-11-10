@@ -92,7 +92,11 @@ public final class ControlSession implements AutoCloseable {
                             state = DrivingState.INACTIVE;
                         }
                     } catch (Exception e) {
-                        throw new IllegalStateException("radio power failed", e);
+                        Log.e("ControlSession", "radio power failed", e);
+                        radioPowered = !on;
+                        if (adapter instanceof WasmEdgeTxAdapter wasm) {
+                            wasm.noteStartFailure(e.getMessage());
+                        }
                     }
                 });
     }

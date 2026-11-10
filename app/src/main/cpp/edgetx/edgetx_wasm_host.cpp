@@ -93,6 +93,7 @@ static bool ensure_wamr() {
     if (!inited) {
         RuntimeInitArgs args = {};
         args.mem_alloc_type = Alloc_With_System_Allocator;
+        args.max_thread_num = 16;
         if (!wasm_runtime_full_init(&args)) {
             return false;
         }
