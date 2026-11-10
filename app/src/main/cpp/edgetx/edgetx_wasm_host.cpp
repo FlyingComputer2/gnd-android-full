@@ -72,6 +72,7 @@ static void host_simu_lcd_notify(wasm_exec_env_t) {
 }
 
 static void host_simu_queue_audio(wasm_exec_env_t exec_env, uint8_t* buf, uint32_t len) {
+    (void)exec_env;
     if (!g_notify_host || !buf || len == 0) {
         return;
     }
@@ -83,16 +84,8 @@ static void host_simu_queue_audio(wasm_exec_env_t exec_env, uint8_t* buf, uint32
     if (!cb) {
         return;
     }
-    wasm_module_inst_t inst = wasm_runtime_get_module_inst(exec_env);
-    if (!inst) {
-        return;
-    }
-    const uint32_t wasm_off = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(buf));
-    void* native = wasm_runtime_addr_app_to_native(inst, wasm_off);
-    if (!native) {
-        return;
-    }
-    cb(static_cast<const uint8_t*>(native), len);
+    // WAMR passes a native pointer into WASM linear memory (same as EdgeTX Companion).
+    cb(buf, len);
 }
 static void host_simu_trace(wasm_exec_env_t, const char*) {}
 static void host_simu_aux_serial_start(wasm_exec_env_t, uint32_t, uint32_t, uint32_t) {}

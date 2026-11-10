@@ -11,6 +11,7 @@ public final class AudioTrackEdgeTxAudioAdapter implements EdgeTxAudioAdapter {
 
     private final Object lock = new Object();
     private AudioTrack track;
+    private int chunksDelivered;
 
     @Override
     public void start() {
@@ -104,5 +105,9 @@ public final class AudioTrackEdgeTxAudioAdapter implements EdgeTxAudioAdapter {
             return;
         }
         queuePcm16Le(pcm, pcm.length);
+        int n = ++chunksDelivered;
+        if (n == 1 || n % 200 == 0) {
+            Log.d(TAG, "PCM chunks delivered: " + n + " (last " + pcm.length + " bytes)");
+        }
     }
 }

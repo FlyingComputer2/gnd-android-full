@@ -1,15 +1,18 @@
 package com.flyingcomputer.gndfull.edgetx;
 
 import android.content.Context;
+import android.util.Log;
 import com.flyingcomputer.gndfull.edgetx.audio.AudioTrackEdgeTxAudioAdapter;
 import com.flyingcomputer.gndfull.edgetx.audio.EdgeTxAudioAdapter;
 import java.io.File;
+import java.io.IOException;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.Arrays;
 
 /** EdgeTX TX16S simulator via WAMR. */
 public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
+    private static final String TAG = "WasmEdgeTxAdapter";
     private static final String WASM_ASSET = "edgetx/edgetx-tx16s-simulator.wasm";
 
     static {
@@ -18,8 +21,10 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
 
     private final Context context;
     private final EdgeTxAudioAdapter audio;
+    private final File sdRoot;
     private final long handle;
     private volatile boolean running;
+    private volatile boolean awaitingPostBootStickModePatch;
     private volatile String startFailure;
     private byte[] lcdCache = new byte[0];
     private int lcdW;
@@ -34,14 +39,16 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
         this.audio = audio;
         File wasm = ensureWasmOnDisk();
         File sdRoot;
+        File sd;
         try {
-            sdRoot = EdgeTxSdSeedInstaller.ensureSdRoot(context);
+            sd = EdgeTxSdSeedInstaller.ensureSdRoot(context);
         } catch (java.io.IOException e) {
             throw new IllegalStateException("EdgeTX SD seed failed", e);
         }
+        this.sdRoot = sd;
         handle =
                 nativeCreate(
-                        wasm.getAbsolutePath(), sdRoot.getAbsolutePath(), sdRoot.getAbsolutePath());
+                        sd.getAbsolutePath(), sd.getAbsolutePath(), sd.getAbsolutePath());
         if (handle == 0) {
             throw new IllegalStateException("EdgeTX wasm load failed");
         }
@@ -77,11 +84,18 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
     @Override
     public void start() {
         startFailure = null;
-        int utcOffsetSec = java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000;
-        if (!nativeStart(handle, utcOffsetSec)) {
-            throw new IllegalStateException("simuStart failed");
+        try {
+            EdgeTxRadioPrefs.ApplyResult prefs = EdgeTxRadioPrefs.applyDefaults(sdRoot);
+            awaitingPostBootStickModePatch = prefs == EdgeTxRadioPrefs.ApplyResult.NEEDS_POST_BOOT_PATCH;
+        } catch (IOException e) {
+            Log.w(TAG, "radio prefs before start: " + e.getMessage());
         }
         audio.start();
+        int utcOffsetSec = java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000;
+        if (!nativeStart(handle, utcOffsetSec)) {
+            audio.stop();
+            throw new IllegalStateException("simuStart failed");
+        }
         running = true;
     }
 
@@ -170,6 +184,30 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
             return;
         }
         nativePump(handle);
+        if (awaitingPostBootStickModePatch && nativeBootComplete(handle)) {
+            try {
+                if (EdgeTxRadioPrefs.completePostBootDefaults(sdRoot)) {
+                    restartRadioAfterRadioYamlPatch();
+                }
+            } catch (IOException e) {
+                Log.w(TAG, "post-boot stick mode patch: " + e.getMessage());
+            } finally {
+                awaitingPostBootStickModePatch = false;
+            }
+        }
+    }
+
+    private void restartRadioAfterRadioYamlPatch() {
+        nativeStop(handle);
+        int utcOffsetSec =
+                java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000;
+        if (!nativeStart(handle, utcOffsetSec)) {
+            running = false;
+            audio.stop();
+            startFailure = "stick mode restart failed";
+            return;
+        }
+        running = true;
     }
 
     public boolean bootComplete() {
