@@ -9,5 +9,8 @@ public interface EdgeTxAudioAdapter {
 
     void stop();
 
+    /** Pause speaker output without stopping the simulator. */
+    default void setForeground(boolean foreground) {}
+
     void queuePcm16Le(byte[] interleavedMono, int byteLength);
 }

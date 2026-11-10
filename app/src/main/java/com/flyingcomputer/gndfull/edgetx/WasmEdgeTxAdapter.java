@@ -126,6 +126,11 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
         return running;
     }
 
+    /** Pause speaker output; wasm/simu keep running. */
+    public void setForeground(boolean foreground) {
+        audio.setForeground(foreground);
+    }
+
     @Override
     public void submitInput(EdgeTxInputSnapshot input) {
         if (!running) {

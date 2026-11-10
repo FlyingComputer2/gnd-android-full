@@ -72,6 +72,13 @@ public final class ControlSession implements AutoCloseable {
         return radioPowered;
     }
 
+    /** Pause host audio when the UI is in the background; do not reboot EdgeTX. */
+    public void setForeground(boolean foreground) {
+        if (adapter instanceof WasmEdgeTxAdapter wasm) {
+            wasm.setForeground(foreground);
+        }
+    }
+
     public boolean menuBlocksInput() {
         return menuBlocksDriving;
     }

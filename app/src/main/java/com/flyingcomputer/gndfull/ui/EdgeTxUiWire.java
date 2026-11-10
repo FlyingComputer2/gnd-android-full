@@ -114,8 +114,8 @@ public final class EdgeTxUiWire {
         }
     }
 
-    public void wireTrimPair(TrimPairView pair) {
-        pair.setListener(
+    public void wireTrim(TrimRockerView rocker) {
+        rocker.setListener(
                 (index, down) -> {
                     if (!control.radioPowered()) {
                         return;

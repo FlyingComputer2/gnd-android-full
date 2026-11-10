@@ -28,20 +28,17 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import com.flyingcomputer.gndfull.control.ControlSession;
 import com.flyingcomputer.gndfull.control.DrivingMode;
-import com.flyingcomputer.gndfull.control.DrivingState;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapterFactory;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
 import com.flyingcomputer.gndfull.edgetx.Tx16InputMap;
-import com.flyingcomputer.gndfull.edgetx.Tx16TrimMap;
 import com.flyingcomputer.gndfull.transport.UsbGroundSession;
 import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
 import com.flyingcomputer.gndfull.ui.EdgeTxLcdView;
 import com.flyingcomputer.gndfull.ui.EdgeTxUiWire;
-import com.flyingcomputer.gndfull.ui.GimbalPadView;
 import com.flyingcomputer.gndfull.ui.OsdPresenter;
+import com.flyingcomputer.gndfull.ui.StickClusterView;
 import com.flyingcomputer.gndfull.ui.SwitchStripView;
-import com.flyingcomputer.gndfull.ui.TrimPairView;
 import com.flyingcomputer.gndfull.video.VideoMetrics;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -127,9 +124,15 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         usbManager = (UsbManager) getSystemService(USB_SERVICE);
-        EdgeTxAdapter edgeTx = EdgeTxAdapterFactory.createAuto(this);
-        control = new ControlSession(edgeTx);
+        control = GndFullApp.from(this).control();
+        EdgeTxAdapter edgeTx = control.adapter();
         edgeTxUi = new EdgeTxUiWire(control);
+        if (Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher()
+                    .registerOnBackInvokedCallback(
+                            android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                            () -> moveTaskToBack(true));
+        }
         usbSession =
                 new UsbGroundSession(
                         control,
@@ -162,8 +165,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         int padH = Math.round(density * 6f);
         int padV = Math.round(density * 2f);
         int barH = Math.round(density * 28f);
-        int trimW = Math.round(density * 36f);
-
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(0xffeef1f3);
@@ -309,10 +310,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout gimbals = new LinearLayout(this);
         gimbals.setOrientation(LinearLayout.HORIZONTAL);
         gimbals.addView(
-                buildLeftStickCluster(trimW),
+                buildStickCluster(true),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
         gimbals.addView(
-                buildRightStickCluster(trimW),
+                buildStickCluster(false),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
         root.addView(
                 gimbals,
@@ -341,49 +342,37 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
-    private LinearLayout buildLeftStickCluster(int trimW) {
-        LinearLayout cluster = new LinearLayout(this);
-        cluster.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        TrimPairView lh =
-                new TrimPairView(this, true, "←", "→", Tx16TrimMap.LH_DEC, Tx16TrimMap.LH_INC);
-        edgeTxUi.wireTrimPair(lh);
-        GimbalPadView left = new GimbalPadView(this, null);
-        edgeTxUi.wireGimbal(left, true);
-        row.addView(lh, new LinearLayout.LayoutParams(trimW, ViewGroup.LayoutParams.MATCH_PARENT));
-        row.addView(
-                left, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
-        cluster.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        TrimPairView lv =
-                new TrimPairView(this, false, "↓", "↑", Tx16TrimMap.LV_DEC, Tx16TrimMap.LV_INC);
-        edgeTxUi.wireTrimPair(lv);
-        cluster.addView(
-                lv,
-                new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, Math.round(trimW * 0.9f)));
+    private StickClusterView buildStickCluster(boolean leftStick) {
+        StickClusterView cluster = new StickClusterView(this, leftStick);
+        edgeTxUi.wireGimbal(cluster.gimbal(), leftStick);
+        edgeTxUi.wireTrim(cluster.hTrim());
+        edgeTxUi.wireTrim(cluster.vTrim());
         return cluster;
     }
 
-    private LinearLayout buildRightStickCluster(int trimW) {
-        LinearLayout cluster = new LinearLayout(this);
-        cluster.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        TrimPairView rv =
-                new TrimPairView(this, true, "↑", "↓", Tx16TrimMap.RV_INC, Tx16TrimMap.RV_DEC);
-        edgeTxUi.wireTrimPair(rv);
-        GimbalPadView right = new GimbalPadView(this, null);
-        edgeTxUi.wireGimbal(right, false);
-        TrimPairView rh =
-                new TrimPairView(this, true, "←", "→", Tx16TrimMap.RH_DEC, Tx16TrimMap.RH_INC);
-        edgeTxUi.wireTrimPair(rh);
-        row.addView(rv, new LinearLayout.LayoutParams(trimW, ViewGroup.LayoutParams.MATCH_PARENT));
-        row.addView(
-                right, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
-        row.addView(rh, new LinearLayout.LayoutParams(trimW, ViewGroup.LayoutParams.MATCH_PARENT));
-        cluster.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        return cluster;
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (control != null) {
+            control.setForeground(true);
+            updatePowerButton();
+            if (lcdView != null) {
+                lcdView.setRadioPowered(control.radioPowered());
+            }
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        if (control != null) {
+            control.setForeground(false);
+        }
+        super.onPause();
+    }
+
+    @Override
+    public void onBackPressed() {
+        moveTaskToBack(true);
     }
 
     private void applySystemBarInsets(View root) {
@@ -515,9 +504,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         surfaceReady = false;
         submit(this::disconnectUsb);
         usbSetup.shutdown();
-        if (control != null) {
-            control.close();
-        }
         super.onDestroy();
     }
 }

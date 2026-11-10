@@ -12,6 +12,7 @@ public final class AudioTrackEdgeTxAudioAdapter implements EdgeTxAudioAdapter {
     private final Object lock = new Object();
     private AudioTrack track;
     private int chunksDelivered;
+    private boolean foreground = true;
 
     @Override
     public void start() {
@@ -52,7 +53,28 @@ public final class AudioTrackEdgeTxAudioAdapter implements EdgeTxAudioAdapter {
                 track = null;
                 return;
             }
-            track.play();
+            if (foreground) {
+                track.play();
+            }
+        }
+    }
+
+    @Override
+    public void setForeground(boolean foreground) {
+        synchronized (lock) {
+            this.foreground = foreground;
+            if (track == null) {
+                return;
+            }
+            try {
+                if (foreground) {
+                    track.play();
+                } else {
+                    track.pause();
+                }
+            } catch (IllegalStateException ignored) {
+                // Track already released.
+            }
         }
     }
 
@@ -83,7 +105,7 @@ public final class AudioTrackEdgeTxAudioAdapter implements EdgeTxAudioAdapter {
         }
         final int len = Math.min(byteLength, interleavedMono.length);
         synchronized (lock) {
-            if (track == null) {
+            if (track == null || !foreground) {
                 return;
             }
             int written = 0;
