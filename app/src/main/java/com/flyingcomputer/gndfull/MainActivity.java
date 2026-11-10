@@ -359,12 +359,12 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void refreshControlStatus() {
-        showStatus(
-                control.adapter().status().detail()
-                        + "  ch1="
-                        + control.lastOutputs()[0]
-                        + "  ch3="
-                        + control.lastOutputs()[2]);
+        int[] outputs = control.lastOutputs();
+        String channels =
+                outputs.length >= 4
+                        ? ("  ch1=" + outputs[0] + "  ch3=" + outputs[2])
+                        : "";
+        showStatus(control.adapter().status().detail() + channels);
     }
 
     private void submit(Runnable work) {

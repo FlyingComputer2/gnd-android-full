@@ -80,6 +80,14 @@ public final class EdgeTxLcdView extends View {
         }
         EdgeTxAdapter.LcdMetadata meta = adapter.lcdMetadata();
         byte[] rgb565 = adapter.copyLcdFrameRgb565();
+        final int expected = meta.width() * meta.height() * 2;
+        if (rgb565 == null || rgb565.length < expected) {
+            if (frame == null || frame.getWidth() != meta.width() || frame.getHeight() != meta.height()) {
+                frame = Bitmap.createBitmap(meta.width(), meta.height(), Bitmap.Config.RGB_565);
+            }
+            invalidate();
+            return;
+        }
         if (frame == null || frame.getWidth() != meta.width() || frame.getHeight() != meta.height()) {
             frame = Bitmap.createBitmap(meta.width(), meta.height(), Bitmap.Config.RGB_565);
         }
