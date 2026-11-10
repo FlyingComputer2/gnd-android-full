@@ -14,6 +14,10 @@ set(WAMR_BUILD_SIMD 0)
 set(WAMR_BUILD_EXCE_HANDLING 1)
 set(WAMR_DISABLE_HW_BOUND_CHECK 1)
 
+if(ANDROID)
+    set(WAMR_BUILD_PLATFORM "android")
+endif()
+
 FetchContent_Declare(
     wamr
     GIT_REPOSITORY https://github.com/bytecodealliance/wasm-micro-runtime
