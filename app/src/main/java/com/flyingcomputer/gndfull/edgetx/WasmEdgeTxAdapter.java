@@ -33,7 +33,12 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
         this.context = context.getApplicationContext();
         this.audio = audio;
         File wasm = ensureWasmOnDisk();
-        File sdRoot = EdgeTxSdSeedInstaller.ensureSdRoot(context);
+        File sdRoot;
+        try {
+            sdRoot = EdgeTxSdSeedInstaller.ensureSdRoot(context);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("EdgeTX SD seed failed", e);
+        }
         handle =
                 nativeCreate(
                         wasm.getAbsolutePath(), sdRoot.getAbsolutePath(), sdRoot.getAbsolutePath());
