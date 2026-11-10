@@ -1,22 +1,42 @@
 cmake_minimum_required(VERSION 3.22)
-project(gndfull_receiver LANGUAGES C CXX)
+project(gndfull_native LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 include(FetchContent)
+
 FetchContent_Declare(vstreamer GIT_REPOSITORY https://github.com/FlyingComputer2/vstreamer.git
     GIT_TAG f4044615fe6857dc1a7dd3fdb8704b492d618caf)
 FetchContent_GetProperties(vstreamer)
 if(NOT vstreamer_POPULATED)
     FetchContent_Populate(vstreamer)
 endif()
+
+if(ANDROID_ABI STREQUAL "armeabi-v7a")
+    set(WAMR_BUILD_TARGET "ARM")
+elseif(ANDROID_ABI STREQUAL "x86_64")
+    set(WAMR_BUILD_TARGET "X86_64")
+else()
+    set(WAMR_BUILD_TARGET "AARCH64")
+endif()
+include(${CMAKE_CURRENT_LIST_DIR}/../../../../cmake/FetchWamr.cmake)
+
 add_library(receiver_core STATIC receiver.cpp ${vstreamer_SOURCE_DIR}/src/core/rtp_h264.cpp)
 target_include_directories(receiver_core PUBLIC . ${vstreamer_SOURCE_DIR}/src)
+
+add_library(edgetx_wamr STATIC edgetx/edgetx_wasm_host.cpp)
+target_include_directories(edgetx_wamr PUBLIC edgetx ${wamr_SOURCE_DIR}/core/iwasm/include)
+target_link_libraries(edgetx_wamr PUBLIC vmlib log)
+
 if(ROVER_NATIVE_TESTS)
     enable_testing()
     add_executable(receiver_test ../../../../native-tests/receiver_test.cpp)
     target_link_libraries(receiver_test receiver_core)
     add_test(NAME receiver_test COMMAND receiver_test)
 else()
-    add_library(gndfull_receiver SHARED jni.cpp edgetx_jni.cpp)
+    add_library(gndfull_receiver SHARED jni.cpp)
     target_link_libraries(gndfull_receiver receiver_core log)
+
+    add_library(gndfull_edgetx SHARED edgetx/edgetx_jni.cpp)
+    target_link_libraries(gndfull_edgetx edgetx_wamr log)
 endif()

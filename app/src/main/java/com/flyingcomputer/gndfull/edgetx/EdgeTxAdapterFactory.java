@@ -1,18 +1,29 @@
 package com.flyingcomputer.gndfull.edgetx;
 
-/** Selects fake vs native EdgeTX adapter implementations. */
+import android.content.Context;
+
+/** Selects EdgeTX backend: WASM simulator (TX16S) or offline fake. */
 public final class EdgeTxAdapterFactory {
     public enum Kind {
-        FAKE,
-        NATIVE_STUB
+        WASM,
+        FAKE
     }
 
     private EdgeTxAdapterFactory() {}
 
-    public static EdgeTxAdapter create(Kind kind) {
-        return switch (kind) {
-            case FAKE -> new FakeEdgeTxAdapter();
-            case NATIVE_STUB -> new NativeEdgeTxAdapter();
-        };
+    public static EdgeTxAdapter create(Context context, Kind kind) {
+        if (kind == Kind.WASM) {
+            return new WasmEdgeTxAdapter(context);
+        }
+        return new FakeEdgeTxAdapter();
+    }
+
+    /** Prefer WASM; fall back to fake when wasm asset/build is missing. */
+    public static EdgeTxAdapter createAuto(Context context) {
+        try {
+            return create(context, Kind.WASM);
+        } catch (Exception e) {
+            return create(context, Kind.FAKE);
+        }
     }
 }

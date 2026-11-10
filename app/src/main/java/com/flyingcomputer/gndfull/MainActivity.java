@@ -27,9 +27,12 @@ import android.widget.TextView;
 import com.flyingcomputer.gndfull.control.ControlSession;
 import com.flyingcomputer.gndfull.control.DrivingMode;
 import com.flyingcomputer.gndfull.control.DrivingState;
+import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapterFactory;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxInputSnapshot;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
+import com.flyingcomputer.gndfull.edgetx.Tx16InputMap;
+import com.flyingcomputer.gndfull.edgetx.WasmEdgeTxAdapter;
 import com.flyingcomputer.gndfull.transport.UsbGroundSession;
 import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
 import com.flyingcomputer.gndfull.ui.EdgeTxLcdView;
@@ -121,7 +124,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         usbManager = (UsbManager) getSystemService(USB_SERVICE);
-        control = new ControlSession(EdgeTxAdapterFactory.Kind.FAKE);
+        EdgeTxAdapter edgeTx = EdgeTxAdapterFactory.createAuto(this);
+        control = new ControlSession(edgeTx);
         usbSession =
                 new UsbGroundSession(
                         control,
@@ -147,7 +151,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
                             @Override
                             public void onVideoMetrics(VideoMetrics metrics) {}
-                        });
+                        },
+                        false);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -266,6 +271,17 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
         lcdView = new EdgeTxLcdView(this, null);
         lcdView.bind(control.adapter());
+        lcdView.setTouchMapper(
+                (lcdX, lcdY, up) -> {
+                    EdgeTxAdapter a = control.adapter();
+                    if (a instanceof WasmEdgeTxAdapter wasm) {
+                        if (up) {
+                            wasm.touchUp();
+                        } else {
+                            wasm.touchDown(lcdX, lcdY);
+                        }
+                    }
+                });
         int lcdHeight = (int) (getResources().getDisplayMetrics().density * 180);
         root.addView(
                 lcdView,
@@ -276,9 +292,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         upper.setLabels(new String[] {"SE", "SF", "SG", "SH"});
         upper.setListener(
                 (index, position) -> {
-                    switches[4 + index] = position;
+                    switches[Tx16InputMap.UPPER_SWITCH_INDICES[index]] = position;
                     publishInput();
-                    updateArmFromSwitches();
                 });
         root.addView(
                 upper,
@@ -290,9 +305,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         lower.setLabels(new String[] {"SD", "SC", "SB", "SA"});
         lower.setListener(
                 (index, position) -> {
-                    switches[index] = position;
+                    switches[Tx16InputMap.LOWER_SWITCH_INDICES[index]] = position;
                     publishInput();
-                    updateArmFromSwitches();
                 });
         root.addView(
                 lower,
@@ -354,7 +368,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         root.addView(statusBar);
 
         setContentView(root);
-        showStatus("RC — USB ch0 video + ch2 rc-v1; arm with SA (neutral throttle)");
+        showStatus(
+                "EdgeTX: "
+                        + edgeTx.status().detail()
+                        + " — USB video optional (RC/S.Port later)");
         ui.post(lcdRefresh);
         ui.post(osdRefresh);
 
@@ -376,7 +393,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                         "USB ch0 rtp-h264-v1 video, ch2 rc-v1 MSP (rover_sample 0x4201).\n"
                                 + "EdgeTX: "
                                 + control.adapter().status().detail()
-                                + "\nArm: SA up with neutral throttle. Disarm: SA down.")
+                                + "\nRover RC / S.Port adapters are not enabled in this build.")
                 .setNeutralButton("Connect USB", (d, w) -> discoverUsb())
                 .setPositiveButton("Close", (d, w) -> control.setMenuOpen(false))
                 .setOnDismissListener(d -> control.setMenuOpen(false))
@@ -385,14 +402,16 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
     private void publishInput() {
         control.publishInput(new EdgeTxInputSnapshot(sticks, switches));
+        refreshControlStatus();
     }
 
-    private void updateArmFromSwitches() {
-        if (usbSession != null && usbSession.controlBridge() != null) {
-            usbSession.controlBridge().updateSwitches(switches);
-        }
-        DrivingState ds = control.state();
-        showStatus("Control: " + ds + "  ch1=" + control.lastOutputs()[0] + "  ch3=" + control.lastOutputs()[2]);
+    private void refreshControlStatus() {
+        showStatus(
+                control.adapter().status().detail()
+                        + "  ch1="
+                        + control.lastOutputs()[0]
+                        + "  ch3="
+                        + control.lastOutputs()[2]);
     }
 
     private void submit(Runnable work) {
@@ -441,7 +460,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                     currentDevice = device.getDeviceId();
                     try {
                         usbSession.connect(usbManager, device, videoSurface.getHolder().getSurface());
-                        updateArmFromSwitches();
                     } catch (Exception e) {
                         disconnectUsb();
                         showStatus("Connection failed: " + e.getMessage());

@@ -1,9 +1,9 @@
 package com.flyingcomputer.gndfull.control;
 
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
-import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapterFactory;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxInputSnapshot;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
+import com.flyingcomputer.gndfull.edgetx.WasmEdgeTxAdapter;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -32,8 +32,8 @@ public final class ControlSession implements AutoCloseable {
     private volatile boolean menuBlocksDriving;
     private volatile ScheduledFuture<?> refresh;
 
-    public ControlSession(EdgeTxAdapterFactory.Kind kind) {
-        adapter = EdgeTxAdapterFactory.create(kind);
+    public ControlSession(EdgeTxAdapter adapter) {
+        this.adapter = adapter;
         loop.execute(
                 () -> {
                     try {
@@ -43,7 +43,20 @@ public final class ControlSession implements AutoCloseable {
                         throw new IllegalStateException("EdgeTX start failed", e);
                     }
                 });
-        refresh = tick.scheduleAtFixedRate(() -> loop.execute(this::refreshOutputs), 50, 50, TimeUnit.MILLISECONDS);
+        refresh =
+                tick.scheduleAtFixedRate(
+                        () -> {
+                            loop.execute(
+                                    () -> {
+                                        if (adapter instanceof WasmEdgeTxAdapter wasm) {
+                                            wasm.pump();
+                                        }
+                                        refreshOutputs();
+                                    });
+                        },
+                        50,
+                        50,
+                        TimeUnit.MILLISECONDS);
     }
 
     public DrivingState state() {

@@ -95,7 +95,7 @@ public final class FakeEdgeTxAdapter implements EdgeTxAdapter {
             outputs[i] = 512 + (sticks[i] * 512) / 1024;
         }
         for (int i = 0; i < 8; i++) {
-            outputs[4 + i] = switches[i] <= 0 ? 988 : 2012;
+            outputs[4 + i] = switches[i] < 0 ? 988 : (switches[i] > 0 ? 2012 : 1500);
         }
         for (int i = 12; i < CHANNELS; i++) {
             outputs[i] = 1500;

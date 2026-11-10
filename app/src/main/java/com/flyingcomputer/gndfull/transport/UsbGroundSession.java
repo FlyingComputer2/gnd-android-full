@@ -23,15 +23,17 @@ public final class UsbGroundSession implements AutoCloseable {
 
     private final ControlSession control;
     private final Listener listener;
+    private final boolean enableRc;
     private UsbProxy proxy;
     private VideoReceiver video;
     private final VideoMetrics videoMetrics = new VideoMetrics();
     private final RcUsbHandler rcUsb = new RcUsbHandler();
     private RoverControlBridge bridge;
 
-    public UsbGroundSession(ControlSession control, Listener listener) {
+    public UsbGroundSession(ControlSession control, Listener listener, boolean enableRc) {
         this.control = control;
         this.listener = listener;
+        this.enableRc = enableRc;
         rcUsb.setListener(
                 telem -> {
                     if (listener != null) {
@@ -51,8 +53,19 @@ public final class UsbGroundSession implements AutoCloseable {
                                 listener.onFailure(error);
                             }
                         });
-        bridge = new RoverControlBridge(control, rcUsb);
         UsbProxy.Channel videoChannel = proxy.registerHandler(0, video);
+        if (enableRc) {
+            bridge = new RoverControlBridge(control, rcUsb);
+        }
+        if (!enableRc) {
+            proxy.connect(manager, device);
+            videoChannel.open(8);
+            control.onUsbConnected();
+            if (listener != null) {
+                listener.onStatus("Video channel 0 open (EdgeTX-only mode)");
+            }
+            return;
+        }
         UsbProxy.Handler rcHandler =
                 new UsbProxy.Handler() {
                     @Override

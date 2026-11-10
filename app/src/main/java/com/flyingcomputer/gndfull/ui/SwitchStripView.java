@@ -7,7 +7,7 @@ import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 
-/** Four labeled switches in one row (SA–SH mapping supplied by parent). */
+/** Switch row; supports 2- or 3-position toggles. */
 public final class SwitchStripView extends View {
     public interface Listener {
         void onSwitch(int index, int position);
@@ -16,6 +16,7 @@ public final class SwitchStripView extends View {
     private final Paint box = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final int[] positions = new int[4];
+    private final int[] maxPositions = new int[] {3, 3, 3, 3};
     private String[] labels = new String[] {"", "", "", ""};
     private Listener listener;
 
@@ -31,15 +32,15 @@ public final class SwitchStripView extends View {
 
     public void setLabels(String[] labels) {
         this.labels = labels;
+        for (int i = 0; i < maxPositions.length && i < labels.length; i++) {
+            maxPositions[i] =
+                    com.flyingcomputer.gndfull.edgetx.Tx16InputMap.isTwoPosition(labels[i]) ? 2 : 3;
+        }
         invalidate();
     }
 
     public void setListener(Listener listener) {
         this.listener = listener;
-    }
-
-    public int[] positions() {
-        return positions.clone();
     }
 
     @Override
@@ -49,11 +50,22 @@ public final class SwitchStripView extends View {
         for (int i = 0; i < 4; i++) {
             float left = i * cell;
             canvas.drawRect(left + 4, 4, left + cell - 4, h - 4, box);
-            canvas.drawText(labels[i], left + cell / 2f, h * 0.55f, text);
-            if (positions[i] > 0) {
-                canvas.drawCircle(left + cell / 2f, h * 0.78f, 10f, box);
-            }
+            String label = i < labels.length ? labels[i] : "";
+            canvas.drawText(label, left + cell / 2f, h * 0.45f, text);
+            String pos = positionLabel(positions[i], maxPositions[i]);
+            canvas.drawText(pos, left + cell / 2f, h * 0.78f, text);
         }
+    }
+
+    private static String positionLabel(int pos, int max) {
+        if (max == 2) {
+            return pos > 0 ? "↑" : "↓";
+        }
+        return switch (pos) {
+            case -1 -> "↓";
+            case 1 -> "↑";
+            default -> "—";
+        };
     }
 
     @Override
@@ -61,7 +73,7 @@ public final class SwitchStripView extends View {
         if (event.getAction() == MotionEvent.ACTION_UP) {
             int index = (int) (event.getX() / (getWidth() / 4f));
             if (index >= 0 && index < 4) {
-                positions[index] = positions[index] <= 0 ? 1 : 0;
+                positions[index] = nextPosition(positions[index], maxPositions[index]);
                 if (listener != null) {
                     listener.onSwitch(index, positions[index]);
                 }
@@ -69,5 +81,18 @@ public final class SwitchStripView extends View {
             }
         }
         return true;
+    }
+
+    private static int nextPosition(int current, int max) {
+        if (max == 2) {
+            return current > 0 ? 0 : 1;
+        }
+        if (current <= -1) {
+            return 0;
+        }
+        if (current == 0) {
+            return 1;
+        }
+        return -1;
     }
 }

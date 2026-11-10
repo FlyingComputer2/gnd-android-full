@@ -11,10 +11,15 @@ import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 
 /** Displays the latest EdgeTX RGB565 framebuffer with letterboxing. */
 public final class EdgeTxLcdView extends View {
+    public interface TouchMapper {
+        void onLcdTouch(int lcdX, int lcdY, boolean up);
+    }
+
     private final Paint background = new Paint();
     private final Rect dst = new Rect();
     private EdgeTxAdapter adapter;
     private Bitmap frame;
+    private TouchMapper touchMapper;
 
     public EdgeTxLcdView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -23,6 +28,42 @@ public final class EdgeTxLcdView extends View {
 
     public void bind(EdgeTxAdapter adapter) {
         this.adapter = adapter;
+    }
+
+    public void setTouchMapper(TouchMapper touchMapper) {
+        this.touchMapper = touchMapper;
+    }
+
+    @Override
+    public boolean onTouchEvent(android.view.MotionEvent event) {
+        if (touchMapper == null || frame == null || adapter == null) {
+            return false;
+        }
+        float scale = Math.min((float) getWidth() / frame.getWidth(),
+                (float) getHeight() / frame.getHeight());
+        int dw = Math.round(frame.getWidth() * scale);
+        int dh = Math.round(frame.getHeight() * scale);
+        int left = (getWidth() - dw) / 2;
+        int top = (getHeight() - dh) / 2;
+        float x = event.getX();
+        float y = event.getY();
+        if (x < left || y < top || x > left + dw || y > top + dh) {
+            return false;
+        }
+        int lcdX = Math.round((x - left) * frame.getWidth() / (float) dw);
+        int lcdY = Math.round((y - top) * frame.getHeight() / (float) dh);
+        switch (event.getActionMasked()) {
+            case android.view.MotionEvent.ACTION_DOWN:
+            case android.view.MotionEvent.ACTION_MOVE:
+                touchMapper.onLcdTouch(lcdX, lcdY, false);
+                return true;
+            case android.view.MotionEvent.ACTION_UP:
+            case android.view.MotionEvent.ACTION_CANCEL:
+                touchMapper.onLcdTouch(lcdX, lcdY, true);
+                return true;
+            default:
+                return false;
+        }
     }
 
     public void refreshFrame() {

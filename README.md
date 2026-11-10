@@ -7,8 +7,8 @@ Android ground station with on-device EdgeTX UI, virtual gimbals/switches, and U
 | Area | Status |
 | --- | --- |
 | Portrait RC layout (video, OSD placeholder, EdgeTX nav row, LCD, switches, gimbals) | Implemented |
-| Fake EdgeTX adapter + JNI stub (`NativeEdgeTxAdapter`) | Implemented |
-| Pinned EdgeTX simulator cross-build | Not started — adapter API is ready |
+| EdgeTX TX16S via WAMR + wasm (`WasmEdgeTxAdapter`) | Implemented — requires wasm asset |
+| Fake EdgeTX (`FakeEdgeTxAdapter`) | Fallback without wasm |
 | USB RGP4 v2 video channel 0 (`rtp-h264-v1`) | Ported from [gnd-android](https://github.com/FlyingComputer2/gnd-android) |
 | USB channel 2 `rc-v1` → rover_sample MSP `0x4201` @ 50 Hz | `RoverControlBridge` + `RcUsbHandler` |
 | Telemetry `0x4220` on OSD | `OsdPresenter` (USB measurement points) |
