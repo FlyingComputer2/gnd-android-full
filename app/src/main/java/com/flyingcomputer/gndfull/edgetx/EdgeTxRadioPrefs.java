@@ -79,7 +79,7 @@ public final class EdgeTxRadioPrefs {
             if (current == stickMode) {
                 return false;
             }
-            next = matcher.replaceFirst("$1" + stickMode);
+            next = matcher.replaceFirst(Matcher.quoteReplacement(matcher.group(1) + stickMode));
         } else {
             String suffix = body.endsWith("\n") || body.isEmpty() ? "" : "\n";
             next = body + suffix + "stickMode: " + stickMode + "\n";
