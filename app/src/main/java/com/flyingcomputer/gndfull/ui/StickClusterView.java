@@ -5,7 +5,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import com.flyingcomputer.gndfull.edgetx.Tx16TrimMap;
 
-/** Full-cell gimbal with slim inner trim rockers overlaid on the stick. */
+/** 1:1 gimbal filling the cell, with slim inner trim rockers overlaid on the stick. */
 public final class StickClusterView extends ViewGroup {
     private final boolean leftStick;
     private final int trimPx;

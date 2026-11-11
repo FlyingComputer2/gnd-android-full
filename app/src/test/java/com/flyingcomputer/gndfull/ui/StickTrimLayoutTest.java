@@ -7,15 +7,17 @@ import org.junit.Test;
 
 public class StickTrimLayoutTest {
     @Test
-    public void gimbalFillsTheCell() {
+    public void gimbalIsLargestCenteredSquare() {
         StickTrimLayout.Box gimbal = new StickTrimLayout.Box();
         StickTrimLayout.Box h = new StickTrimLayout.Box();
         StickTrimLayout.Box v = new StickTrimLayout.Box();
         StickTrimLayout.place(220, 160, 12, 8, true, gimbal, h, v);
 
-        assertEquals(0, gimbal.left);
+        assertEquals(160, gimbal.width());
+        assertEquals(160, gimbal.height());
+        assertEquals(30, gimbal.left);
         assertEquals(0, gimbal.top);
-        assertEquals(220, gimbal.right);
+        assertEquals(190, gimbal.right);
         assertEquals(160, gimbal.bottom);
     }
 
@@ -27,13 +29,13 @@ public class StickTrimLayoutTest {
         StickTrimLayout.place(220, 160, 12, 8, true, gimbal, h, v);
 
         assertEquals(12, v.width());
-        assertTrue(v.left > gimbal.width() / 2);
-        assertEquals(220 - 8, v.right);
+        assertTrue(v.left > (gimbal.left + gimbal.right) / 2);
+        assertEquals(gimbal.right - 8, v.right);
         assertTrue(v.top >= gimbal.top);
         assertTrue(v.bottom <= gimbal.bottom);
         assertTrue(v.height() < gimbal.height());
-        assertTrue(h.height() == 12);
-        assertEquals(8, h.top);
+        assertEquals(12, h.height());
+        assertEquals(gimbal.top + 8, h.top);
         assertTrue(h.width() < gimbal.width());
         assertTrue(h.left > gimbal.left);
         assertTrue(h.right < gimbal.right);
@@ -46,10 +48,10 @@ public class StickTrimLayoutTest {
         StickTrimLayout.Box v = new StickTrimLayout.Box();
         StickTrimLayout.place(220, 160, 12, 8, false, gimbal, h, v);
 
-        assertEquals(8, v.left);
+        assertEquals(gimbal.left + 8, v.left);
         assertEquals(12, v.width());
-        assertTrue(v.right < gimbal.width() / 2);
+        assertTrue(v.right < (gimbal.left + gimbal.right) / 2);
         assertTrue(h.top >= gimbal.top);
-        assertTrue(h.bottom < gimbal.bottom);
+        assertTrue(h.bottom <= gimbal.bottom);
     }
 }

@@ -58,14 +58,17 @@ public final class GimbalPadView extends View {
         float padT = getPaddingTop();
         float padR = getPaddingRight();
         float padB = getPaddingBottom();
-        field.set(padL, padT, w - padR, h - padB);
-        if (field.width() < 1f || field.height() < 1f) {
-            field.set(0, 0, Math.max(1, w), Math.max(1, h));
-        }
+        float availW = Math.max(1f, w - padL - padR);
+        float availH = Math.max(1f, h - padT - padB);
+        float side = Math.min(availW, availH);
+        float left = padL + (availW - side) / 2f;
+        float top = padT + (availH - side) / 2f;
+        field.set(left, top, left + side, top + side);
         center.set(field.centerX(), field.centerY());
-        radiusX = field.width() * 0.42f;
-        radiusY = field.height() * 0.42f;
-        ring.set(center.x - radiusX, center.y - radiusY, center.x + radiusX, center.y + radiusY);
+        float radius = side * 0.42f;
+        radiusX = radius;
+        radiusY = radius;
+        ring.set(center.x - radius, center.y - radius, center.x + radius, center.y + radius);
         knobPt.set(center);
     }
 
@@ -74,7 +77,7 @@ public final class GimbalPadView extends View {
         float r = Math.min(field.width(), field.height()) * 0.06f;
         canvas.drawRoundRect(field, r, r, fill);
         canvas.drawRoundRect(field, r, r, frame);
-        canvas.drawOval(ring, frame);
+        canvas.drawCircle(center.x, center.y, radiusX, frame);
         canvas.drawLine(center.x - radiusX, center.y, center.x + radiusX, center.y, cross);
         canvas.drawLine(center.x, center.y - radiusY, center.x, center.y + radiusY, cross);
         float knobR = Math.min(radiusX, radiusY) * 0.20f;

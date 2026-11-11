@@ -1,8 +1,8 @@
 package com.flyingcomputer.gndfull.ui;
 
 /**
- * Full-cell gimbal with slim trim rockers overlaid inside: ◀▶ on top, ▲▼ on the
- * inner edge (between the two sticks).
+ * Largest 1:1 gimbal that fits the cell, with slim trim rockers overlaid inside:
+ * ◀▶ on top, ▲▼ on the inner edge (between the two sticks).
  */
 public final class StickTrimLayout {
     public static final class Box {
@@ -39,29 +39,32 @@ public final class StickTrimLayout {
         int h = Math.max(1, height);
         int slim = Math.max(1, trimPx);
         int inset = Math.max(0, insetPx);
-        gimbal.left = 0;
-        gimbal.top = 0;
-        gimbal.right = w;
-        gimbal.bottom = h;
+        int size = Math.min(w, h);
+        int ox = (w - size) / 2;
+        int oy = (h - size) / 2;
+        gimbal.left = ox;
+        gimbal.top = oy;
+        gimbal.right = ox + size;
+        gimbal.bottom = oy + size;
 
-        int hLen = Math.max(slim * 4, w * 3 / 10);
-        hLen = Math.min(hLen, Math.max(slim, w - inset * 2));
-        hTrim.left = (w - hLen) / 2;
-        hTrim.top = inset;
+        int hLen = Math.max(slim * 4, size * 3 / 10);
+        hLen = Math.min(hLen, Math.max(slim, size - inset * 2));
+        hTrim.left = ox + (size - hLen) / 2;
+        hTrim.top = oy + inset;
         hTrim.right = hTrim.left + hLen;
-        hTrim.bottom = inset + slim;
+        hTrim.bottom = hTrim.top + slim;
 
-        int vLen = Math.max(slim * 4, h * 3 / 10);
-        vLen = Math.min(vLen, Math.max(slim, h - inset * 2));
-        int vTop = (h - vLen) / 2;
+        int vLen = Math.max(slim * 4, size * 3 / 10);
+        vLen = Math.min(vLen, Math.max(slim, size - inset * 2));
+        int vTop = oy + (size - vLen) / 2;
         vTrim.top = vTop;
         vTrim.bottom = vTop + vLen;
         if (leftStick) {
-            vTrim.right = w - inset;
+            vTrim.right = gimbal.right - inset;
             vTrim.left = vTrim.right - slim;
         } else {
-            vTrim.left = inset;
-            vTrim.right = inset + slim;
+            vTrim.left = gimbal.left + inset;
+            vTrim.right = vTrim.left + slim;
         }
     }
 }
