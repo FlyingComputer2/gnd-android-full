@@ -9,7 +9,7 @@ import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 
-/** One touch gimbal; tracks a single active pointer ID. Fills its cell. */
+/** 1:1 square gimbal; square throw so a 45° corner maxes X and Y. */
 public final class GimbalPadView extends View {
     public interface Listener {
         void onAxis(int normX, int normY);
@@ -22,7 +22,7 @@ public final class GimbalPadView extends View {
     private final Paint cross = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint knob = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF field = new RectF();
-    private final RectF ring = new RectF();
+    private final RectF gate = new RectF();
     private final PointF center = new PointF();
     private final PointF knobPt = new PointF();
     private final float[] clamped = new float[2];
@@ -68,7 +68,7 @@ public final class GimbalPadView extends View {
         float radius = side * 0.42f;
         radiusX = radius;
         radiusY = radius;
-        ring.set(center.x - radius, center.y - radius, center.x + radius, center.y + radius);
+        gate.set(center.x - radius, center.y - radius, center.x + radius, center.y + radius);
         knobPt.set(center);
     }
 
@@ -77,7 +77,8 @@ public final class GimbalPadView extends View {
         float r = Math.min(field.width(), field.height()) * 0.06f;
         canvas.drawRoundRect(field, r, r, fill);
         canvas.drawRoundRect(field, r, r, frame);
-        canvas.drawCircle(center.x, center.y, radiusX, frame);
+        float gateR = Math.min(gate.width(), gate.height()) * 0.06f;
+        canvas.drawRoundRect(gate, gateR, gateR, frame);
         canvas.drawLine(center.x - radiusX, center.y, center.x + radiusX, center.y, cross);
         canvas.drawLine(center.x, center.y - radiusY, center.x, center.y + radiusY, cross);
         float knobR = Math.min(radiusX, radiusY) * 0.20f;
@@ -127,8 +128,8 @@ public final class GimbalPadView extends View {
                 clamped);
         knobPt.set(center.x + clamped[0], center.y + clamped[1]);
         if (listener != null) {
-            int normX = Math.round((clamped[0] / radiusX) * 1024f);
-            int normY = Math.round((-clamped[1] / radiusY) * 1024f);
+            int normX = GimbalTravel.toPerMille(clamped[0], radiusX);
+            int normY = GimbalTravel.toPerMille(-clamped[1], radiusY);
             listener.onAxis(normX, normY);
         }
         invalidate();
