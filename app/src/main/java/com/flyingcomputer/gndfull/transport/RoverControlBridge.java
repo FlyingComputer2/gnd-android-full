@@ -5,6 +5,7 @@ import com.flyingcomputer.gndfull.control.DrivingState;
 import com.flyingcomputer.gndfull.transport.msp.MspV2;
 import com.flyingcomputer.gndfull.transport.rover.EdgeTxOutputMapper;
 import com.flyingcomputer.gndfull.transport.rover.RoverRcFrame;
+import java.util.Arrays;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -28,6 +29,7 @@ public final class RoverControlBridge implements AutoCloseable {
     private volatile ScheduledFuture<?> tick;
     private volatile int[] lastSwitches = new int[8];
     private volatile boolean rcOpen;
+    private volatile byte[] lastCrsfFrame = new byte[0];
 
     public RoverControlBridge(ControlSession control, RcUsbHandler rcUsb) {
         this.control = control;
@@ -63,19 +65,22 @@ public final class RoverControlBridge implements AutoCloseable {
         }
         int seq = sequence.incrementAndGet() & 0xFFFF;
         long tUs = System.currentTimeMillis() * 1000L;
+        int[] outputs = control.lastOutputs();
+        boolean sendArm = control.state() == DrivingState.ARMED;
+        lastCrsfFrame =
+                mapper.buildCrsfFrame(
+                        outputs, lastSwitches, control.state(), sendArm);
         RoverRcFrame rc =
-                mapper.map(
-                        seq,
-                        tUs,
-                        control.lastOutputs(),
-                        lastSwitches,
-                        control.state(),
-                        control.state() == DrivingState.ARMED);
+                mapper.map(seq, tUs, outputs, lastSwitches, control.state(), sendArm);
         byte[] wire =
                 MspV2.encode(MspV2.TO_ROVER, RoverRcFrame.FUNCTION, rc.pack());
         if (!rcUsb.sendMsp(wire)) {
             // Queue full or channel stalled; rover failsafe handles silence.
         }
+    }
+
+    public byte[] lastCrsfFrame() {
+        return lastCrsfFrame == null ? new byte[0] : Arrays.copyOf(lastCrsfFrame, lastCrsfFrame.length);
     }
 
     @Override

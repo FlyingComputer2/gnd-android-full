@@ -243,4 +243,19 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
     private native byte[] nativeCopyLcdRgb565(long handle);
 
     private native int[] nativeCopyChannelOutputs(long handle);
+
+    private native void nativeSendTelemetry(
+            long handle, int module, int protocol, byte[] data);
+
+    /** Pushes one Crossfire packet into EdgeTX ({@code simuSendTelemetry}). */
+    public void sendCrossfireTelemetry(byte[] frame) {
+        if (!running || frame == null || frame.length == 0) {
+            return;
+        }
+        nativeSendTelemetry(
+                handle,
+                com.flyingcomputer.gndfull.crsf.RoverCrossfireTelemetry.MODULE_EXTERNAL,
+                com.flyingcomputer.gndfull.crsf.RoverCrossfireTelemetry.PROTOCOL_CROSSFIRE,
+                frame);
+    }
 }

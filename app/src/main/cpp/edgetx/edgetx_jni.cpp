@@ -121,6 +121,26 @@ Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeCopyLcdRgb565(JNI
     return to_jbytes(env, buf);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeSendTelemetry(
+    JNIEnv* env, jobject, jlong handle, jint module, jint protocol, jbyteArray data) {
+    if (!data) {
+        return;
+    }
+    const jsize len = env->GetArrayLength(data);
+    if (len <= 0) {
+        return;
+    }
+    std::vector<uint8_t> buf(static_cast<size_t>(len));
+    env->GetByteArrayRegion(data, 0, len, reinterpret_cast<jbyte*>(buf.data()));
+    edgetx_wasm_send_telemetry(
+        ptr(handle),
+        static_cast<uint8_t>(module),
+        static_cast<uint8_t>(protocol),
+        buf.data(),
+        static_cast<uint32_t>(len));
+}
+
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeCopyChannelOutputs(JNIEnv* env, jobject, jlong handle) {
     int16_t temp[32];
