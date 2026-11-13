@@ -28,6 +28,8 @@ public final class UsbGroundSession implements AutoCloseable {
     private UsbProxy proxy;
     private VideoReceiver video;
     private final VideoMetrics videoMetrics = new VideoMetrics();
+    /** krono rtt client on USB channel 3: the ground P4's clock, which the rover follows. */
+    private final SynchClient clock = new SynchClient();
     private final RcUsbHandler rcUsb = new RcUsbHandler();
     private RoverControlBridge bridge;
 
@@ -61,12 +63,14 @@ public final class UsbGroundSession implements AutoCloseable {
                             }
                         });
         UsbProxy.Channel videoChannel = proxy.registerHandler(0, video);
+        UsbProxy.Channel syncChannel = proxy.registerHandler(SynchClient.CHANNEL, clock);
         if (enableRc) {
-            bridge = new RoverControlBridge(control, rcUsb);
+            bridge = new RoverControlBridge(control, rcUsb, clock);
         }
         if (!enableRc) {
             proxy.connect(manager, device);
             videoChannel.open(8);
+            syncChannel.open(2);
             control.onUsbConnected();
             if (listener != null) {
                 listener.onStatus("Video channel 0 open (EdgeTX-only mode)");
@@ -104,6 +108,7 @@ public final class UsbGroundSession implements AutoCloseable {
         proxy.connect(manager, device);
         videoChannel.open(8);
         rcChannel.open(8);
+        syncChannel.open(2);
         control.onUsbConnected();
         if (listener != null) {
             listener.onStatus("Video channel 0 open (rtp-h264-v1)");
@@ -113,6 +118,11 @@ public final class UsbGroundSession implements AutoCloseable {
 
     public VideoMetrics videoMetrics() {
         return videoMetrics;
+    }
+
+    /** Ground-clock time source (USB channel 3). */
+    public SynchClient clock() {
+        return clock;
     }
 
     public RoverControlBridge controlBridge() {
@@ -127,6 +137,7 @@ public final class UsbGroundSession implements AutoCloseable {
     @Override
     public synchronized void close() {
         disconnect();
+        clock.close();
     }
 
     private void closeInternals() {
