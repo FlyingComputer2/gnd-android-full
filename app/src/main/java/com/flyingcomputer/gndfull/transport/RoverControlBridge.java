@@ -1,5 +1,6 @@
 package com.flyingcomputer.gndfull.transport;
 
+import android.util.Log;
 import com.flyingcomputer.gndfull.control.ControlSession;
 import com.flyingcomputer.gndfull.control.DrivingState;
 import com.flyingcomputer.gndfull.crsf.CrsfRcChannels;
@@ -18,6 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * to failsafe.
  */
 public final class RoverControlBridge implements AutoCloseable {
+    private static final String TAG = "RoverRc";
     private static final long PERIOD_MS = 20;
     /** A CRSF frame older than this is not sent (EdgeTX stopped, External RF off). */
     private static final long STALE_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
@@ -33,33 +35,59 @@ public final class RoverControlBridge implements AutoCloseable {
     private final AtomicInteger sequence = new AtomicInteger();
     private volatile ScheduledFuture<?> tick;
     private volatile boolean rcOpen;
+    private long sent;
+    private long skippedStale;
+    private long lastLogNanos;
 
     public RoverControlBridge(ControlSession control, RcUsbHandler rcUsb) {
         this.control = control;
         this.rcUsb = rcUsb;
+        // Ticks from creation so the diagnostics line shows even if channel 2 never opens.
+        tick = timer.scheduleAtFixedRate(this::publish, 0, PERIOD_MS, TimeUnit.MILLISECONDS);
     }
 
     public void onRcChannelOpen() {
+        Log.i(TAG, "RC channel 2 open");
         rcOpen = true;
-        if (tick == null) {
-            tick = timer.scheduleAtFixedRate(this::publish, 0, PERIOD_MS, TimeUnit.MILLISECONDS);
-        }
     }
 
     public void onRcChannelClose() {
+        Log.i(TAG, "RC channel 2 closed");
         rcOpen = false;
         control.disarm();
     }
 
     private void publish() {
+        long now = System.nanoTime();
+        if (now - lastLogNanos > TimeUnit.SECONDS.toNanos(5)) {
+            lastLogNanos = now;
+            CrsfRcChannels last = control.lastCrsf();
+            Log.i(
+                    TAG,
+                    "rc_open=" + rcOpen
+                            + " sent=" + sent
+                            + " skipped_stale=" + skippedStale
+                            + " crsf_age_ms="
+                            + (last == null ? -1 : (now - last.receivedNanos) / 1_000_000)
+                            + " ch1-8="
+                            + (last == null
+                                    ? "-"
+                                    : java.util.Arrays.toString(
+                                            java.util.Arrays.copyOf(last.us, 8)))
+                            + " status=" + (last == null ? -1 : last.status)
+                            + " state=" + control.state()
+                            + " " + control.crsfStats());
+        }
         if (!rcOpen) {
             return;
         }
         CrsfRcChannels ch = control.lastCrsf();
-        if (ch == null || System.nanoTime() - ch.receivedNanos > STALE_NANOS) {
+        if (ch == null || now - ch.receivedNanos > STALE_NANOS) {
+            skippedStale++;
             control.disarm();
             return;
         }
+        sent++;
         DrivingState st = control.state();
         boolean allowArm = st == DrivingState.READY || st == DrivingState.ARMED;
         int seq = sequence.incrementAndGet() & 0xFFFF;
