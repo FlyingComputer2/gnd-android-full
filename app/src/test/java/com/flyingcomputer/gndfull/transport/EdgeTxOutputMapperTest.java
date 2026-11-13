@@ -53,6 +53,14 @@ public final class EdgeTxOutputMapperTest {
     }
 
     @Test
+    public void unmixedCh6KeepsRoverMode() {
+        RoverRcFrame rc =
+                EdgeTxOutputMapper.map(
+                        1, 0, viaCrsf(pulses(), CrsfChannelsFrame.STATUS_CH5_ARMING), true);
+        assertEquals(RoverRcFrame.MODE_NONE, rc.mode);
+    }
+
+    @Test
     public void unmixedCh5DoesNotArm() {
         int[] p = pulses(); // CH5 = 0 = 1500 us, as with nothing mixed on it
         assertEquals(

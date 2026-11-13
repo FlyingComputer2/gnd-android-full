@@ -14,9 +14,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 50 Hz rover_sample RC publisher over USB channel 2, fed by the CRSF channels EdgeTX sends to its
- * external module. With External RF off (no fresh CRSF frame) nothing is sent and the rover goes
- * to failsafe.
+ * rover_sample RC publisher over USB channel 2: one frame per CRSF frame EdgeTX sends to its
+ * external module (~50 Hz). With External RF off (no CRSF) nothing is sent and the rover goes to
+ * failsafe.
  */
 public final class RoverControlBridge implements AutoCloseable {
     private static final String TAG = "RoverRc";
@@ -36,16 +36,24 @@ public final class RoverControlBridge implements AutoCloseable {
     private final AtomicInteger sequence = new AtomicInteger();
     private volatile ScheduledFuture<?> tick;
     private volatile boolean rcOpen;
-    private long sent;
-    private long skippedStale;
+    private volatile long sent;
+    private volatile long skippedBlocked;
     private long lastLogNanos;
 
     public RoverControlBridge(ControlSession control, RcUsbHandler rcUsb, SynchClient clock) {
         this.control = control;
         this.rcUsb = rcUsb;
         this.clock = clock;
-        // Ticks from creation so the diagnostics line shows even if channel 2 never opens.
-        tick = timer.scheduleAtFixedRate(this::publish, 0, PERIOD_MS, TimeUnit.MILLISECONDS);
+        // Watchdog ticks from creation so the diagnostics line shows even if channel 2 never opens.
+        tick = timer.scheduleAtFixedRate(this::watchdog, 0, PERIOD_MS, TimeUnit.MILLISECONDS);
+        control.setCrsfListener(
+                () -> {
+                    try {
+                        timer.execute(this::send);
+                    } catch (java.util.concurrent.RejectedExecutionException e) {
+                        // closed
+                    }
+                });
     }
 
     public void onRcChannelOpen() {
@@ -59,7 +67,8 @@ public final class RoverControlBridge implements AutoCloseable {
         control.disarm();
     }
 
-    private void publish() {
+    /** 20 ms watchdog: diagnostics, and disarm when CRSF stops (no frames = nothing sent). */
+    private void watchdog() {
         long now = System.nanoTime();
         if (now - lastLogNanos > TimeUnit.SECONDS.toNanos(5)) {
             lastLogNanos = now;
@@ -68,7 +77,7 @@ public final class RoverControlBridge implements AutoCloseable {
                     TAG,
                     "rc_open=" + rcOpen
                             + " sent=" + sent
-                            + " skipped_stale=" + skippedStale
+                            + " skipped_blocked=" + skippedBlocked
                             + " crsf_age_ms="
                             + (last == null ? -1 : (now - last.receivedNanos) / 1_000_000)
                             + " ch1-8="
@@ -81,34 +90,48 @@ public final class RoverControlBridge implements AutoCloseable {
                             + " " + control.crsfStats()
                             + " " + clock.stats());
         }
+        CrsfRcChannels ch = control.lastCrsf();
+        if (ch == null || now - ch.receivedNanos > STALE_NANOS) {
+            control.disarm();
+        }
+    }
+
+    /**
+     * Sends one RC frame for the CRSF frame just drained (one per drain, ~50 Hz), so there is no
+     * second timer between EdgeTX and the wire. While the app blocks driving (menu open, radio off,
+     * USB failsafe) nothing is sent: the rover then holds steering centre and CH2/CH3 at their
+     * failsafe positions instead of following sticks moved during setup.
+     */
+    private void send() {
         if (!rcOpen) {
             return;
         }
         CrsfRcChannels ch = control.lastCrsf();
-        if (ch == null || now - ch.receivedNanos > STALE_NANOS) {
-            skippedStale++;
-            control.disarm();
+        if (ch == null) {
             return;
         }
-        sent++;
         if (!ch.armed()) {
             control.clearFailsafeOnDisarmedSwitch();
         }
         DrivingState st = control.state();
-        boolean allowArm = st == DrivingState.READY || st == DrivingState.ARMED;
+        if (st != DrivingState.READY && st != DrivingState.ARMED) {
+            skippedBlocked++;
+            control.disarm();
+            return;
+        }
         int seq = sequence.incrementAndGet() & 0xFFFF;
         // Ground clock (krono over USB), the one the rover follows, so the rover's rc_lat_ms is
         // the real phone-to-rover time; the phone's own wall clock was ~100 ms off.
         long tUs = clock.groundOrLocalNowUs();
-        RoverRcFrame rc = EdgeTxOutputMapper.map(seq, tUs, ch, allowArm);
+        RoverRcFrame rc = EdgeTxOutputMapper.map(seq, tUs, ch, true);
         if ((rc.flags & RoverRcFrame.FLAG_ARM) != 0) {
             control.requestArm();
         } else {
             control.disarm();
         }
         byte[] wire = MspV2.encode(MspV2.TO_ROVER, RoverRcFrame.FUNCTION, rc.pack());
-        if (!rcUsb.sendMsp(wire)) {
-            // Queue full or channel stalled; rover failsafe handles silence.
+        if (rcUsb.sendMsp(wire)) {
+            sent++;
         }
     }
 
@@ -118,6 +141,7 @@ public final class RoverControlBridge implements AutoCloseable {
             tick.cancel(true);
             tick = null;
         }
+        control.setCrsfListener(null);
         timer.shutdownNow();
         rcOpen = false;
     }

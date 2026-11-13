@@ -43,6 +43,7 @@ public final class ControlSession implements AutoCloseable {
     private volatile long extRxPushes;
     private volatile long extRxRejected;
     private volatile long deviceInfoSent;
+    private volatile Runnable crsfListener;
 
     public ControlSession(EdgeTxAdapter adapter) {
         this.adapter = adapter;
@@ -164,11 +165,11 @@ public final class ControlSession implements AutoCloseable {
         }
     }
 
+    /** Rover-side state only: EdgeTX keeps the operator's inputs (the bridge calls this each tick). */
     public void disarm() {
         if (state == DrivingState.ARMED) {
             state = DrivingState.READY;
         }
-        publishNeutral();
     }
 
     public void publishInput(EdgeTxInputSnapshot snapshot) {
@@ -223,6 +224,11 @@ public final class ControlSession implements AutoCloseable {
         return lastCrsf;
     }
 
+    /** Called on the EdgeTX owner thread right after a new CRSF frame is drained; keep it short. */
+    public void setCrsfListener(Runnable listener) {
+        crsfListener = listener;
+    }
+
     /** Feeds CRSF telemetry bytes to EdgeTX's external module, as if from the module. */
     public void pushExternalModuleRx(byte[] frames) {
         if (frames == null || frames.length == 0 || !radioPowered) {
@@ -257,6 +263,10 @@ public final class ControlSession implements AutoCloseable {
         CrsfRcChannels rc = crsfOut.feed(out, System.nanoTime());
         if (rc != null) {
             lastCrsf = rc;
+            Runnable l = crsfListener;
+            if (l != null) {
+                l.run();
+            }
         }
         // Act as the module: answer EdgeTX's device ping, or it never sends channels.
         if (crsfOut.takePing() && wasm.pushExternalModuleRx(RoverCrossfireTelemetry.deviceInfo())) {
