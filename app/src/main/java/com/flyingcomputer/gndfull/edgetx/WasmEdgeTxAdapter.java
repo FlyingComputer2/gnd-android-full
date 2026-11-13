@@ -58,13 +58,38 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
         }
     }
 
+    /** Changes with every install or update of the APK. */
+    private String apkStamp() {
+        try {
+            android.content.pm.PackageInfo pi =
+                    context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
+            return Long.toString(pi.lastUpdateTime);
+        } catch (Exception e) {
+            return "unknown";
+        }
+    }
+
+    private static String readStamp(File f) {
+        try (InputStream in = new java.io.FileInputStream(f)) {
+            byte[] buf = new byte[64];
+            int n = in.read(buf);
+            return n > 0 ? new String(buf, 0, n, java.nio.charset.StandardCharsets.UTF_8) : "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     private File ensureWasmOnDisk() {
         File out = new File(context.getFilesDir(), "edgetx/edgetx-tx16s-simulator.wasm");
         File parent = out.getParentFile();
         if (parent != null && !parent.mkdirs() && !parent.isDirectory()) {
             throw new IllegalStateException("cannot create EdgeTX files dir");
         }
-        if (out.exists() && out.length() > 0) {
+        // Re-extract after every app install/update: the asset changes with the APK, and a
+        // stale copy silently runs the old simulator.
+        File stamp = new File(parent, "edgetx-tx16s-simulator.wasm.stamp");
+        String want = apkStamp();
+        if (out.exists() && out.length() > 0 && want.equals(readStamp(stamp))) {
             return out;
         }
         try (InputStream in = context.getAssets().open(WASM_ASSET);
@@ -76,6 +101,11 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
             }
         } catch (Exception e) {
             throw new IllegalStateException("missing wasm asset: " + WASM_ASSET, e);
+        }
+        try (FileOutputStream fos = new FileOutputStream(stamp)) {
+            fos.write(want.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            // Without a stamp the next start re-extracts; harmless.
         }
         return out;
     }
