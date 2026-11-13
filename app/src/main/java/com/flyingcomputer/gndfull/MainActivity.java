@@ -345,6 +345,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
     private StickClusterView buildStickCluster(boolean leftStick) {
         StickClusterView cluster = new StickClusterView(this, leftStick);
+        // Mode 2: left stick Y is throttle, without spring (stays where released).
+        cluster.gimbal().setHoldY(leftStick);
         edgeTxUi.wireGimbal(cluster.gimbal(), leftStick);
         edgeTxUi.wireTrim(cluster.hTrim());
         edgeTxUi.wireTrim(cluster.vTrim());

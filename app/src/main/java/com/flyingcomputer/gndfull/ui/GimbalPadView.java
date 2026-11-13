@@ -9,7 +9,10 @@ import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 
-/** 1:1 square gimbal; square throw so a 45° corner maxes X and Y. */
+/**
+ * 1:1 square gimbal; square throw so a 45° corner maxes X and Y. Both axes spring back to centre,
+ * except Y with {@link #setHoldY}: a throttle without spring that stays where it is let go.
+ */
 public final class GimbalPadView extends View {
     public interface Listener {
         void onAxis(int normX, int normY);
@@ -30,6 +33,14 @@ public final class GimbalPadView extends View {
     private int activePointer = -1;
     private float radiusX;
     private float radiusY;
+    /** Y stays where it is released (no spring); X still recentres. */
+    private boolean holdY;
+    /** Held Y in per-mille (up positive). */
+    private int heldNormY;
+    /** Finger-to-knob Y offset at touch down, so a held Y never jumps to the finger. */
+    private float yGrab;
+    /** Held Y within this many per-mille of centre snaps to 0 (arming needs neutral). */
+    static final int HOLD_CENTER_SNAP = 40;
 
     public GimbalPadView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -46,6 +57,15 @@ public final class GimbalPadView extends View {
 
     public void setListener(Listener listener) {
         this.listener = listener;
+    }
+
+    public void setHoldY(boolean holdY) {
+        this.holdY = holdY;
+    }
+
+    /** Held Y after release: within {@link #HOLD_CENTER_SNAP} of centre it is exactly 0. */
+    static int snapHeld(int normY) {
+        return Math.abs(normY) < HOLD_CENTER_SNAP ? 0 : normY;
     }
 
     @Override
@@ -69,7 +89,11 @@ public final class GimbalPadView extends View {
         radiusX = radius;
         radiusY = radius;
         gate.set(center.x - radius, center.y - radius, center.x + radius, center.y + radius);
-        knobPt.set(center);
+        knobPt.set(center.x, heldKnobY());
+    }
+
+    private float heldKnobY() {
+        return holdY ? center.y - heldNormY / (float) GimbalTravel.MAX_PER_MILLE * radiusY : center.y;
     }
 
     @Override
@@ -92,6 +116,8 @@ public final class GimbalPadView extends View {
             case MotionEvent.ACTION_POINTER_DOWN:
                 if (activePointer < 0) {
                     activePointer = event.getPointerId(event.getActionIndex());
+                    // Held Y moves relative to where the finger lands, not to the finger.
+                    yGrab = holdY ? knobPt.y - event.getY(event.getActionIndex()) : 0f;
                     updateKnob(event);
                 }
                 break;
@@ -122,7 +148,7 @@ public final class GimbalPadView extends View {
         }
         GimbalTravel.clamp(
                 event.getX(index) - center.x,
-                event.getY(index) - center.y,
+                event.getY(index) + yGrab - center.y,
                 radiusX,
                 radiusY,
                 clamped);
@@ -130,6 +156,9 @@ public final class GimbalPadView extends View {
         if (listener != null) {
             int normX = GimbalTravel.toPerMille(clamped[0], radiusX);
             int normY = GimbalTravel.toPerMille(-clamped[1], radiusY);
+            if (holdY) {
+                heldNormY = normY;
+            }
             listener.onAxis(normX, normY);
         }
         invalidate();
@@ -137,9 +166,17 @@ public final class GimbalPadView extends View {
 
     private void release() {
         activePointer = -1;
-        knobPt.set(center);
-        if (listener != null) {
-            listener.onRelease();
+        if (holdY) {
+            heldNormY = snapHeld(heldNormY);
+            knobPt.set(center.x, heldKnobY());
+            if (listener != null) {
+                listener.onAxis(0, heldNormY);
+            }
+        } else {
+            knobPt.set(center);
+            if (listener != null) {
+                listener.onRelease();
+            }
         }
         invalidate();
     }
