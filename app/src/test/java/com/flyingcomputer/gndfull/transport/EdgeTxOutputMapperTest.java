@@ -53,6 +53,15 @@ public final class EdgeTxOutputMapperTest {
     }
 
     @Test
+    public void unmixedCh5DoesNotArm() {
+        int[] p = pulses(); // CH5 = 0 = 1500 us, as with nothing mixed on it
+        assertEquals(
+                0,
+                EdgeTxOutputMapper.map(1, 0, viaCrsf(p, CrsfChannelsFrame.STATUS_CH5_ARMING), true)
+                        .flags);
+    }
+
+    @Test
     public void ch5LowOrArmNotAllowedDisarms() {
         int[] p = pulses();
         p[4] = -1024;
