@@ -1,0 +1,29 @@
+From cf1ab3cf71e35504173e62c3f79079b071f256f6 Mon Sep 17 00:00:00 2001
+From: gnd <gnd@local>
+Date: Fri, 13 Nov 2026 13:05:20 +0800
+Subject: [PATCH] simu async: set the exclusion flag before queuing
+ (host-thread race)
+
+---
+ radio/src/os/async_native.cpp | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/radio/src/os/async_native.cpp b/radio/src/os/async_native.cpp
+index ed92f34..81f0f39 100644
+--- a/radio/src/os/async_native.cpp
++++ b/radio/src/os/async_native.cpp
+@@ -26,8 +26,10 @@ bool async_call(async_func_t func, volatile bool* excl_flag, void* param1,
+                 uint32_t param2)
+ {
+   if (excl_flag && *excl_flag) return false;
+-  timer_queue::instance().pend_function(func, param1, param2);
++  // Set before queuing: the timer task may run func (which clears the flag)
++  // before pend_function returns, and a late set would leave it stuck.
+   if (excl_flag) *excl_flag = true;
++  timer_queue::instance().pend_function(func, param1, param2);
+   return true;
+ }
+ 
+-- 
+2.43.0
+
