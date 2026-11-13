@@ -28,8 +28,11 @@ public final class UsbGroundSession implements AutoCloseable {
     private UsbProxy proxy;
     private VideoReceiver video;
     private final VideoMetrics videoMetrics = new VideoMetrics();
-    /** krono rtt client on USB channel 3: the ground P4's clock, which the rover follows. */
-    private final SynchClient clock = new SynchClient();
+    /**
+     * krono rtt client on USB channel 3 (the ground P4's clock, which the rover follows). One per
+     * connection: close() ends its thread, and MainActivity closes the session before reconnecting.
+     */
+    private SynchClient clock;
     private final RcUsbHandler rcUsb = new RcUsbHandler();
     private RoverControlBridge bridge;
 
@@ -63,10 +66,13 @@ public final class UsbGroundSession implements AutoCloseable {
                             }
                         });
         UsbProxy.Channel videoChannel = proxy.registerHandler(0, video);
+        clock = new SynchClient();
         UsbProxy.Channel syncChannel = proxy.registerHandler(SynchClient.CHANNEL, clock);
-        if (enableRc) {
-            bridge = new RoverControlBridge(control, rcUsb, clock);
-        }
+        // Handlers keep their own bridge: closeInternals() clears the field before the proxy's
+        // channel workers deliver onClose.
+        final RoverControlBridge rcBridge =
+                enableRc ? new RoverControlBridge(control, rcUsb, clock) : null;
+        bridge = rcBridge;
         if (!enableRc) {
             proxy.connect(manager, device);
             videoChannel.open(8);
@@ -87,7 +93,7 @@ public final class UsbGroundSession implements AutoCloseable {
                     @Override
                     public void onOpen(UsbProxy.Channel sender) {
                         rcUsb.onOpen(sender);
-                        bridge.onRcChannelOpen();
+                        rcBridge.onRcChannelOpen();
                         if (listener != null) {
                             listener.onStatus("RC channel 2 open (rc-v1)");
                         }
@@ -101,7 +107,7 @@ public final class UsbGroundSession implements AutoCloseable {
                     @Override
                     public void onClose() {
                         rcUsb.onClose();
-                        bridge.onRcChannelClose();
+                        rcBridge.onRcChannelClose();
                     }
                 };
         UsbProxy.Channel rcChannel = proxy.registerHandler(2, rcHandler);
@@ -120,7 +126,7 @@ public final class UsbGroundSession implements AutoCloseable {
         return videoMetrics;
     }
 
-    /** Ground-clock time source (USB channel 3). */
+    /** Ground-clock time source (USB channel 3), or null when not connected. */
     public SynchClient clock() {
         return clock;
     }
@@ -137,7 +143,6 @@ public final class UsbGroundSession implements AutoCloseable {
     @Override
     public synchronized void close() {
         disconnect();
-        clock.close();
     }
 
     private void closeInternals() {
@@ -152,6 +157,10 @@ public final class UsbGroundSession implements AutoCloseable {
         if (video != null) {
             video.close();
             video = null;
+        }
+        if (clock != null) {
+            clock.close();
+            clock = null;
         }
     }
 }
