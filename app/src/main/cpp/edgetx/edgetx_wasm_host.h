@@ -40,5 +40,8 @@ uint8_t edgetx_wasm_copy_outputs(EdgeTxWasmHost* host, int16_t* buf, uint8_t max
 
 bool edgetx_wasm_boot_complete(const EdgeTxWasmHost* host);
 
-bool edgetx_wasm_send_telemetry(EdgeTxWasmHost* host, uint8_t module, uint8_t protocol,
-                                const uint8_t* data, uint32_t len);
+// External module S.Port bridge (needs the gnd simulator patch; 0 / false
+// without it). tx_read drains what EdgeTX sent (CRSF channel frames);
+// rx_push hands bytes (CRSF telemetry) to the module's frame parser.
+uint32_t edgetx_wasm_ext_module_tx_read(EdgeTxWasmHost* host, uint8_t* out, uint32_t max);
+bool edgetx_wasm_ext_module_rx_push(EdgeTxWasmHost* host, const uint8_t* data, uint32_t len);

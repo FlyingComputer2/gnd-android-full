@@ -7,16 +7,15 @@
 3. UI maps gimbals → analog LH/LV/RH/RV, switches → `simuSetSwitch` (-1/0/1), nav keys → `simuSetKey`, LCD touch → `simuTouchDown/Up`
 4. `EdgeTxAdapterFactory.createAuto()` uses WASM when the asset exists, else `FakeEdgeTxAdapter`
 
-## CRSF (channel path + telemetry injection)
+## CRSF (EdgeTX external module)
 
-- `CrsfChannelsFrame`: 16-channel `0x16` frame builder matching EdgeTX `createCrossfireChannelsFrame` (status byte `0x02` = CH5 arming mode). Not sent anywhere yet: the rover link is still MSP `0x4201`
-- Rover RC (`0x4201`, 17 B): steer CH1, throttle CH3, `aux` = CH6 → rover CH2 servo, `aux2` = CH7 → rover CH3 servo. Rovers older than `aux2` accept only 15 B, so flash the rover first
-- `simuSendTelemetry` wired via JNI (`WasmEdgeTxAdapter.sendCrossfireTelemetry`); rover `0x4220` → CRSF link statistics (LQ from rover RC loss; RSSI / SNR 0, the rover has none)
+Set the model's **External RF** to **CRSF** (MDL → Model Setup). The app is the "module":
 
-## Deferred (per user)
-
-- Enable bench RC: `UsbGroundSession(..., enableRc=true)` in `MainActivity`
-- Full CRSF → rover_sample transport (USB still MSP today)
+- The wasm is built with `scripts/edgetx-patches/` (applied by `scripts/build-edgetx-wasm.sh`): the simulator's external S.Port becomes a host bridge, `simuExtModuleTxRead` (bytes EdgeTX sends) and `simuExtModuleRxPush` (bytes to EdgeTX's CRSF parser, CRC checked).
+- `ControlSession` drains the external module every 20 ms (`CrsfStreamParser`, newest `0x16` frame). `RoverControlBridge` maps it to rover RC `0x4201` (17 B) at 50 Hz; no fresh frame (100 ms, External RF off) = nothing sent = rover failsafe.
+- Channels: CH1/CH2 unused, CH3 throttle, CH4 steering (rover servo CH1), CH5 arm (EdgeTX CRSF arming mode CH5 ≥ 1500 µs, or the Switch-mode status bit), CH6 mode (< 1500 µs manual = rover mode 0, ≥ 1500 µs rate = mode 1), CH7 rover servo CH2 (`aux`), CH8 rover servo CH3 (`aux2`). Menu open / failsafe: no arm flag, throttle 0. The rover itself arms only with neutral throttle.
+- Telemetry (rover `0x4220`, 42 B) → CRSF frames into EdgeTX: link statistics (1RSS / 2RSS = ground→rover RSSI at the rover C6, RQly / TQly from rover RC loss), battery (RxBt = VBUS, Curr = motor bridge), attitude (Ptch / Roll / Yaw), flight mode (FM: MAN / RATE / HOLD, `*` = disarmed, FS, FAULT). MDL → Telemetry → Discover new sensors.
+- Rover firmware with 17 B RC and 42 B telemetry first (rov-esp32p4 `fix/rover-servo-channels`).
 
 ## Native libs
 

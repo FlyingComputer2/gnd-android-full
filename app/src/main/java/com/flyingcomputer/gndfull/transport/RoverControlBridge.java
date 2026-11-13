@@ -2,6 +2,7 @@ package com.flyingcomputer.gndfull.transport;
 
 import com.flyingcomputer.gndfull.control.ControlSession;
 import com.flyingcomputer.gndfull.control.DrivingState;
+import com.flyingcomputer.gndfull.crsf.CrsfRcChannels;
 import com.flyingcomputer.gndfull.transport.msp.MspV2;
 import com.flyingcomputer.gndfull.transport.rover.EdgeTxOutputMapper;
 import com.flyingcomputer.gndfull.transport.rover.RoverRcFrame;
@@ -11,13 +12,18 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** 50 Hz rover_sample RC publisher over USB channel 2. */
+/**
+ * 50 Hz rover_sample RC publisher over USB channel 2, fed by the CRSF channels EdgeTX sends to its
+ * external module. With External RF off (no fresh CRSF frame) nothing is sent and the rover goes
+ * to failsafe.
+ */
 public final class RoverControlBridge implements AutoCloseable {
     private static final long PERIOD_MS = 20;
+    /** A CRSF frame older than this is not sent (EdgeTX stopped, External RF off). */
+    private static final long STALE_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
 
     private final ControlSession control;
     private final RcUsbHandler rcUsb;
-    private final EdgeTxOutputMapper mapper = new EdgeTxOutputMapper();
     private final ScheduledExecutorService timer =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "rc-publisher");
@@ -26,7 +32,6 @@ public final class RoverControlBridge implements AutoCloseable {
             });
     private final AtomicInteger sequence = new AtomicInteger();
     private volatile ScheduledFuture<?> tick;
-    private volatile int[] lastSwitches = new int[8];
     private volatile boolean rcOpen;
 
     public RoverControlBridge(ControlSession control, RcUsbHandler rcUsb) {
@@ -46,33 +51,26 @@ public final class RoverControlBridge implements AutoCloseable {
         control.disarm();
     }
 
-    public void updateSwitches(int[] switches) {
-        lastSwitches = switches.clone();
-        if (mapper.armIntent(switches)
-                && control.state() == DrivingState.READY
-                && mapper.throttleNeutral(control.lastOutputs())) {
-            control.requestArm();
-        } else if (!mapper.armIntent(switches)) {
-            control.disarm();
-        }
-    }
-
     private void publish() {
         if (!rcOpen) {
             return;
         }
+        CrsfRcChannels ch = control.lastCrsf();
+        if (ch == null || System.nanoTime() - ch.receivedNanos > STALE_NANOS) {
+            control.disarm();
+            return;
+        }
+        DrivingState st = control.state();
+        boolean allowArm = st == DrivingState.READY || st == DrivingState.ARMED;
         int seq = sequence.incrementAndGet() & 0xFFFF;
         long tUs = System.currentTimeMillis() * 1000L;
-        RoverRcFrame rc =
-                mapper.map(
-                        seq,
-                        tUs,
-                        control.lastOutputs(),
-                        lastSwitches,
-                        control.state(),
-                        control.state() == DrivingState.ARMED);
-        byte[] wire =
-                MspV2.encode(MspV2.TO_ROVER, RoverRcFrame.FUNCTION, rc.pack());
+        RoverRcFrame rc = EdgeTxOutputMapper.map(seq, tUs, ch, allowArm);
+        if ((rc.flags & RoverRcFrame.FLAG_ARM) != 0) {
+            control.requestArm();
+        } else {
+            control.disarm();
+        }
+        byte[] wire = MspV2.encode(MspV2.TO_ROVER, RoverRcFrame.FUNCTION, rc.pack());
         if (!rcUsb.sendMsp(wire)) {
             // Queue full or channel stalled; rover failsafe handles silence.
         }

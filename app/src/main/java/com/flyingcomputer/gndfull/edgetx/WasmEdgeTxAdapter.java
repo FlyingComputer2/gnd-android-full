@@ -244,18 +244,28 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
 
     private native int[] nativeCopyChannelOutputs(long handle);
 
-    private native void nativeSendTelemetry(
-            long handle, int module, int protocol, byte[] data);
+    private native byte[] nativeExtModuleTxRead(long handle);
 
-    /** Pushes one Crossfire packet into EdgeTX ({@code simuSendTelemetry}). */
-    public void sendCrossfireTelemetry(byte[] frame) {
-        if (!running || frame == null || frame.length == 0) {
-            return;
+    private native boolean nativeExtModuleRxPush(long handle, byte[] data);
+
+    /**
+     * Drains the bytes EdgeTX sent to the external module (CRSF channel frames when the model's
+     * External RF is CRSF). Empty when nothing new or the wasm lacks the gnd patch. EdgeTX owner
+     * thread only.
+     */
+    public byte[] readExternalModuleTx() {
+        if (!running) {
+            return new byte[0];
         }
-        nativeSendTelemetry(
-                handle,
-                com.flyingcomputer.gndfull.crsf.RoverCrossfireTelemetry.MODULE_EXTERNAL,
-                com.flyingcomputer.gndfull.crsf.RoverCrossfireTelemetry.PROTOCOL_CROSSFIRE,
-                frame);
+        byte[] b = nativeExtModuleTxRead(handle);
+        return b == null ? new byte[0] : b;
+    }
+
+    /** Feeds bytes from the module (CRSF telemetry) to EdgeTX's parser. EdgeTX owner thread only. */
+    public boolean pushExternalModuleRx(byte[] data) {
+        if (!running || data == null || data.length == 0) {
+            return false;
+        }
+        return nativeExtModuleRxPush(handle, data);
     }
 }

@@ -3,10 +3,13 @@ package com.flyingcomputer.gndfull.transport.rover;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
-/** rover_sample telemetry payload (func 0x4220). */
+/**
+ * rover_sample telemetry payload (func 0x4220): 42 bytes; older rovers send 39 (no vbus, rssi).
+ */
 public final class RoverTelemFrame {
     public static final int FUNCTION = 0x4220;
-    public static final int PAYLOAD_BYTES = 39;
+    public static final int PAYLOAD_BYTES = 42;
+    public static final int PAYLOAD_BYTES_V1 = 39;
 
     public final int seq;
     public final int rcAgeMs;
@@ -16,6 +19,18 @@ public final class RoverTelemFrame {
     public final int thrOut;
     public final int rcLossPerMille;
     public final int rcLatMs;
+    /** 0.01 deg, 0..35999. */
+    public final int headingCentiDeg;
+    /** 0.01 deg. */
+    public final int rollCentiDeg;
+    /** 0.01 deg. */
+    public final int pitchCentiDeg;
+    /** Motor bridge current, 10 mA. */
+    public final int iMotorCentiAmps;
+    /** VBUS, 10 mV; 0 = no sense. */
+    public final int vbusCentiVolts;
+    /** dBm of the ground's frames at the rover radio; 0 = unknown. */
+    public final int rssiDbm;
 
     public RoverTelemFrame(
             int seq,
@@ -26,6 +41,24 @@ public final class RoverTelemFrame {
             int thrOut,
             int rcLossPerMille,
             int rcLatMs) {
+        this(seq, rcAgeMs, state, mode, steerOut, thrOut, rcLossPerMille, rcLatMs, 0, 0, 0, 0, 0, 0);
+    }
+
+    public RoverTelemFrame(
+            int seq,
+            int rcAgeMs,
+            int state,
+            int mode,
+            int steerOut,
+            int thrOut,
+            int rcLossPerMille,
+            int rcLatMs,
+            int headingCentiDeg,
+            int rollCentiDeg,
+            int pitchCentiDeg,
+            int iMotorCentiAmps,
+            int vbusCentiVolts,
+            int rssiDbm) {
         this.seq = seq;
         this.rcAgeMs = rcAgeMs;
         this.state = state;
@@ -34,10 +67,17 @@ public final class RoverTelemFrame {
         this.thrOut = thrOut;
         this.rcLossPerMille = rcLossPerMille;
         this.rcLatMs = rcLatMs;
+        this.headingCentiDeg = headingCentiDeg;
+        this.rollCentiDeg = rollCentiDeg;
+        this.pitchCentiDeg = pitchCentiDeg;
+        this.iMotorCentiAmps = iMotorCentiAmps;
+        this.vbusCentiVolts = vbusCentiVolts;
+        this.rssiDbm = rssiDbm;
     }
 
     public static RoverTelemFrame unpack(byte[] payload) {
-        if (payload == null || payload.length != PAYLOAD_BYTES) {
+        if (payload == null
+                || (payload.length != PAYLOAD_BYTES && payload.length != PAYLOAD_BYTES_V1)) {
             return null;
         }
         ByteBuffer b = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
@@ -51,16 +91,25 @@ public final class RoverTelemFrame {
         b.getShort(); // r_meas
         int steerOut = b.getShort();
         int thrOut = b.getShort();
-        b.getShort(); // heading
-        b.getShort(); // roll
-        b.getShort(); // pitch
+        int heading = b.getShort() & 0xFFFF;
+        int roll = b.getShort();
+        int pitch = b.getShort();
         b.getShort(); // ax
         b.getShort(); // ay
         b.getShort(); // v_est
-        b.getShort(); // i_motor
+        int iMotor = b.getShort() & 0xFFFF;
         int rcLoss = b.getShort() & 0xFFFF;
         int rcLatMs = b.getShort() & 0xFFFF;
-        return new RoverTelemFrame(seq, rcAgeMs, state, mode, steerOut, thrOut, rcLoss, rcLatMs);
+        b.get(); // flags
+        int vbus = 0;
+        int rssi = 0;
+        if (payload.length == PAYLOAD_BYTES) {
+            vbus = b.getShort() & 0xFFFF;
+            rssi = b.get();
+        }
+        return new RoverTelemFrame(
+                seq, rcAgeMs, state, mode, steerOut, thrOut, rcLoss, rcLatMs, heading, roll, pitch,
+                iMotor, vbus, rssi);
     }
 
     public String stateLabel() {

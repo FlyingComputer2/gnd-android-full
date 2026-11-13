@@ -1,5 +1,7 @@
 package com.flyingcomputer.gndfull.control;
 
+import com.flyingcomputer.gndfull.crsf.CrsfRcChannels;
+import com.flyingcomputer.gndfull.crsf.CrsfStreamParser;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxInputSnapshot;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
@@ -33,6 +35,9 @@ public final class ControlSession implements AutoCloseable {
     private volatile boolean menuBlocksDriving;
     private volatile boolean radioPowered = true;
     private volatile ScheduledFuture<?> refresh;
+    /** EdgeTX external module (CRSF) output; owner thread only. */
+    private final CrsfStreamParser crsfOut = new CrsfStreamParser();
+    private volatile CrsfRcChannels lastCrsf;
 
     public ControlSession(EdgeTxAdapter adapter) {
         this.adapter = adapter;
@@ -55,12 +60,13 @@ public final class ControlSession implements AutoCloseable {
                                     () -> {
                                         if (adapter instanceof WasmEdgeTxAdapter wasm) {
                                             wasm.pump();
+                                            drainExternalModule(wasm);
                                         }
                                         refreshOutputs();
                                     });
                         },
-                        50,
-                        50,
+                        20,
+                        20,
                         TimeUnit.MILLISECONDS);
     }
 
@@ -194,17 +200,32 @@ public final class ControlSession implements AutoCloseable {
         publishNeutral();
     }
 
-    /** Injects a CRSF telemetry frame into the wasm simulator (external module). */
-    public void injectCrossfireTelemetry(byte[] frame) {
-        if (frame == null || frame.length == 0 || !radioPowered) {
+    /**
+     * Newest CRSF RC channels frame EdgeTX sent to its external module (External RF = CRSF), or
+     * null if none yet. Check {@link CrsfRcChannels#receivedNanos} for staleness.
+     */
+    public CrsfRcChannels lastCrsf() {
+        return lastCrsf;
+    }
+
+    /** Feeds CRSF telemetry bytes to EdgeTX's external module, as if from the module. */
+    public void pushExternalModuleRx(byte[] frames) {
+        if (frames == null || frames.length == 0 || !radioPowered) {
             return;
         }
         loop.execute(
                 () -> {
                     if (adapter instanceof WasmEdgeTxAdapter wasm) {
-                        wasm.sendCrossfireTelemetry(frame);
+                        wasm.pushExternalModuleRx(frames);
                     }
                 });
+    }
+
+    private void drainExternalModule(WasmEdgeTxAdapter wasm) {
+        CrsfRcChannels rc = crsfOut.feed(wasm.readExternalModuleTx(), System.nanoTime());
+        if (rc != null) {
+            lastCrsf = rc;
+        }
     }
 
     private void publishNeutral() {

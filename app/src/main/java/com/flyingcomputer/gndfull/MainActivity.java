@@ -154,7 +154,9 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                             @Override
                             public void onVideoMetrics(VideoMetrics.Snapshot metrics) {}
                         },
-                        false);
+                        // RC + telemetry on USB channel 2, driven by EdgeTX's CRSF
+                        // external module (see RoverControlBridge).
+                        true);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
