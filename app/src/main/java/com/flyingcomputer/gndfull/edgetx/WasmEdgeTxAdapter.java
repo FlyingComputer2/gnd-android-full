@@ -168,13 +168,9 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
         }
         int[] sticks = input.sticks();
         nativeSetAnalog(handle, Tx16InputMap.ANALOG_LH, Tx16InputMap.stickToEdgeTxPerMille(sticks[0]));
-        nativeSetAnalog(
-                handle,
-                Tx16InputMap.ANALOG_LV,
-                Tx16InputMap.stickY(sticks[1], Tx16InputMap.ANALOG_LV));
+        nativeSetAnalog(handle, Tx16InputMap.ANALOG_LV, Tx16InputMap.stickToEdgeTxPerMille(sticks[1]));
         nativeSetAnalog(handle, Tx16InputMap.ANALOG_RV, Tx16InputMap.stickToEdgeTxPerMille(sticks[3]));
-        nativeSetAnalog(
-                handle, Tx16InputMap.ANALOG_RH, Tx16InputMap.stickY(sticks[2], Tx16InputMap.ANALOG_RH));
+        nativeSetAnalog(handle, Tx16InputMap.ANALOG_RH, Tx16InputMap.stickToEdgeTxPerMille(sticks[2]));
         int[] sw = input.switches();
         for (int i = 0; i < sw.length && i < 8; i++) {
             nativeSetSwitch(handle, i, Tx16InputMap.switchToFirmware(i, sw[i]));
