@@ -203,24 +203,33 @@ Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeCopyLcdRgb565(JNI
     return to_jbytes(env, buf);
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeSendTelemetry(
-    JNIEnv* env, jobject, jlong handle, jint module, jint protocol, jbyteArray data) {
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeExtModuleTxRead(
+    JNIEnv* env, jobject, jlong handle) {
+    uint8_t buf[1024];
+    const uint32_t n = edgetx_wasm_ext_module_tx_read(ptr(handle), buf, sizeof(buf));
+    jbyteArray out = env->NewByteArray(static_cast<jsize>(n));
+    if (out && n > 0) {
+        env->SetByteArrayRegion(out, 0, static_cast<jsize>(n), reinterpret_cast<const jbyte*>(buf));
+    }
+    return out;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeExtModuleRxPush(
+    JNIEnv* env, jobject, jlong handle, jbyteArray data) {
     if (!data) {
-        return;
+        return JNI_FALSE;
     }
     const jsize len = env->GetArrayLength(data);
     if (len <= 0) {
-        return;
+        return JNI_FALSE;
     }
     std::vector<uint8_t> buf(static_cast<size_t>(len));
     env->GetByteArrayRegion(data, 0, len, reinterpret_cast<jbyte*>(buf.data()));
-    edgetx_wasm_send_telemetry(
-        ptr(handle),
-        static_cast<uint8_t>(module),
-        static_cast<uint8_t>(protocol),
-        buf.data(),
-        static_cast<uint32_t>(len));
+    return edgetx_wasm_ext_module_rx_push(ptr(handle), buf.data(), static_cast<uint32_t>(len))
+               ? JNI_TRUE
+               : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jintArray JNICALL

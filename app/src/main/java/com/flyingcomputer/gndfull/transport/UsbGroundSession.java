@@ -37,9 +37,11 @@ public final class UsbGroundSession implements AutoCloseable {
         this.enableRc = enableRc;
         rcUsb.setListener(
                 telem -> {
-                    byte[] crsf = RoverCrossfireTelemetry.linkStatistics(telem);
+                    // As CRSF telemetry from EdgeTX's external module: link stats
+                    // (gnd->rov RSSI, LQ), battery (VBUS), attitude, flight mode.
+                    byte[] crsf = RoverCrossfireTelemetry.frames(telem);
                     if (crsf != null) {
-                        control.injectCrossfireTelemetry(crsf);
+                        control.pushExternalModuleRx(crsf);
                     }
                     if (listener != null) {
                         listener.onTelemetry(telem);

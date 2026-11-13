@@ -57,7 +57,8 @@ struct EdgeTxWasmHost {
     std::vector<const char*> wasi_map_list;
     std::string fatfs_sd_guest = "/";
     std::string fatfs_settings_guest = "/";
-    wasm_function_inst_t fn_send_telemetry = nullptr;
+    wasm_function_inst_t fn_ext_tx_read = nullptr;  // simuExtModuleTxRead (gnd patch)
+    wasm_function_inst_t fn_ext_rx_push = nullptr;  // simuExtModuleRxPush (gnd patch)
 };
 
 static EdgeTxWasmHost* g_notify_host = nullptr;
@@ -156,7 +157,8 @@ static bool lookup(EdgeTxWasmHost* host) {
     host->fn_create_defaults = look("simuCreateDefaults");
     host->fn_boot_complete = look("simuIsBootComplete");
     host->fn_lcd_changed = look("simuLcdChanged");
-    host->fn_send_telemetry = look("simuSendTelemetry");
+    host->fn_ext_tx_read = look("simuExtModuleTxRead");
+    host->fn_ext_rx_push = look("simuExtModuleRxPush");
     return host->fn_init && host->fn_start && host->fn_stop && host->fn_lcd_copy && host->fn_malloc && host->fn_free;
 }
 
@@ -570,9 +572,38 @@ void edgetx_wasm_set_audio_chunk_handler(EdgeTxWasmHost* host, EdgetxAudioChunkF
     host->audio_chunk = std::move(handler);
 }
 
-bool edgetx_wasm_send_telemetry(EdgeTxWasmHost* host, uint8_t module, uint8_t protocol,
-                                const uint8_t* data, uint32_t len) {
-    if (!host || !host->running || !host->fn_send_telemetry || !host->exec_env || !data || len == 0) {
+uint32_t edgetx_wasm_ext_module_tx_read(EdgeTxWasmHost* host, uint8_t* out, uint32_t max) {
+    if (!host || !host->running || !host->fn_ext_tx_read || !host->exec_env || !out || max == 0) {
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(host->mutex);
+    const uint32_t ptr = wasm_alloc(host, max);
+    if (!ptr) {
+        return 0;
+    }
+    uint32_t n = 0;
+    uint32_t argv[2] = {ptr, max};
+    if (wasm_runtime_call_wasm(host->exec_env, host->fn_ext_tx_read, 2, argv)) {
+        n = argv[0] < max ? argv[0] : max;
+        void* native = wasm_runtime_addr_app_to_native(host->module_inst, ptr);
+        if (native && n > 0) {
+            std::memcpy(out, native, n);
+        } else {
+            n = 0;
+        }
+    } else {
+        const char* ex = wasm_runtime_get_exception(host->module_inst);
+        if (ex) {
+            host->last_error = ex;
+        }
+        wasm_runtime_clear_exception(host->module_inst);
+    }
+    wasm_free(host, ptr);
+    return n;
+}
+
+bool edgetx_wasm_ext_module_rx_push(EdgeTxWasmHost* host, const uint8_t* data, uint32_t len) {
+    if (!host || !host->running || !host->fn_ext_rx_push || !host->exec_env || !data || len == 0) {
         return false;
     }
     std::lock_guard<std::mutex> lock(host->mutex);
@@ -586,16 +617,18 @@ bool edgetx_wasm_send_telemetry(EdgeTxWasmHost* host, uint8_t module, uint8_t pr
         return false;
     }
     std::memcpy(native, data, len);
-    uint32_t argv[4] = {module, protocol, ptr, len};
-    const bool ok = wasm_runtime_call_wasm(host->exec_env, host->fn_send_telemetry, 4, argv);
-    wasm_free(host, ptr);
-    if (!ok) {
+    uint32_t argv[2] = {ptr, len};
+    bool ok = wasm_runtime_call_wasm(host->exec_env, host->fn_ext_rx_push, 2, argv);
+    if (ok) {
+        ok = argv[0] != 0;
+    } else {
         const char* ex = wasm_runtime_get_exception(host->module_inst);
         if (ex) {
             host->last_error = ex;
         }
         wasm_runtime_clear_exception(host->module_inst);
     }
+    wasm_free(host, ptr);
     return ok;
 }
 

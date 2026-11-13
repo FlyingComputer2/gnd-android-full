@@ -43,19 +43,87 @@ public final class CrsfChannelsFrameTest {
         assertEquals(1984, unpack(frame, 15));
     }
 
+    private static RoverTelemFrame telem(int state, int mode) {
+        // loss 12.5 %, heading 270 deg, roll -10 deg, pitch 5 deg, 1.23 A, 11.10 V, -67 dBm
+        return new RoverTelemFrame(1, 0, state, mode, 0, 0, 125, 0, 27000, -1000, 500, 123, 1110, -67);
+    }
+
     @Test
-    public void linkStatisticsIsWellFormed() {
-        RoverTelemFrame telem = new RoverTelemFrame(1, 0, 0, 0, 0, 0, 125, 0);
-        byte[] f = RoverCrossfireTelemetry.linkStatistics(telem);
+    public void linkStatisticsCarriesRoverRssiAndLq() {
+        byte[] f = RoverCrossfireTelemetry.linkStatistics(telem(0, 0));
         assertEquals(14, f.length);
         assertEquals(RoverCrossfireTelemetry.SYNC, f[0]);
         assertEquals(12, f[1]); // type + 10 payload + crc
         assertEquals(RoverCrossfireTelemetry.LINK_STATISTICS, f[2]);
-        assertEquals(0, f[3]); // no RSSI from the rover
+        assertEquals(-67, f[3]); // uplink RSSI ant 1, signed dBm
+        assertEquals(-67, f[4]);
         assertEquals(88, f[5]); // uplink LQ: 12.5 % loss -> 87.5 -> 88
-        assertEquals(88, f[11]); // downlink LQ
+        assertEquals(88, f[10]); // downlink LQ
         assertEquals(CrsfCrc8.compute(f, 2, 11), f[13] & 0xFF);
-        assertNull(RoverCrossfireTelemetry.linkStatistics(null));
+    }
+
+    @Test
+    public void batteryAndAttitudeUnits() {
+        byte[] b = RoverCrossfireTelemetry.battery(telem(0, 0));
+        assertEquals(RoverCrossfireTelemetry.BATTERY, b[2]);
+        assertEquals(111, ((b[3] & 0xFF) << 8) | (b[4] & 0xFF)); // 11.1 V in 0.1 V
+        assertEquals(12, ((b[5] & 0xFF) << 8) | (b[6] & 0xFF)); // 1.23 A -> 1.2 A
+        byte[] a = RoverCrossfireTelemetry.attitude(telem(0, 0));
+        assertEquals(RoverCrossfireTelemetry.ATTITUDE, a[2]);
+        assertEquals(873, (short) (((a[3] & 0xFF) << 8) | (a[4] & 0xFF))); // pitch 5 deg
+        assertEquals(-1745, (short) (((a[5] & 0xFF) << 8) | (a[6] & 0xFF))); // roll -10 deg
+        assertEquals(-15708, (short) (((a[7] & 0xFF) << 8) | (a[8] & 0xFF))); // 270 -> -90 deg
+    }
+
+    @Test
+    public void flightModeText() {
+        assertEquals("RATE*", text(RoverCrossfireTelemetry.flightMode(telem(0, 1))));
+        assertEquals("MAN", text(RoverCrossfireTelemetry.flightMode(telem(1, 0))));
+        assertEquals("FS", text(RoverCrossfireTelemetry.flightMode(telem(2, 0))));
+        assertNull(RoverCrossfireTelemetry.frames(null));
+        // Every frame in the bundle parses with a good CRC.
+        byte[] all = RoverCrossfireTelemetry.frames(telem(1, 1));
+        int p = 0;
+        int n = 0;
+        while (p < all.length) {
+            int len = all[p + 1] & 0xFF;
+            assertEquals(CrsfCrc8.compute(all, p + 2, len - 1), all[p + len + 1] & 0xFF);
+            p += len + 2;
+            n++;
+        }
+        assertEquals(4, n);
+    }
+
+    private static String text(byte[] f) {
+        int end = 3;
+        while (f[end] != 0) {
+            end++;
+        }
+        return new String(f, 3, end - 3, java.nio.charset.StandardCharsets.US_ASCII);
+    }
+
+    @Test
+    public void parserSkipsGarbageAndBadCrc() {
+        int[] pulses = new int[CrsfChannelsFrame.CHANNEL_COUNT];
+        pulses[2] = 1024;
+        byte[] good = CrsfChannelsFrame.fromPulses(pulses);
+        byte[] bad = good.clone();
+        bad[10] ^= 0x55;
+        byte[] stream = new byte[3 + bad.length + good.length];
+        stream[0] = 0x12;
+        stream[1] = (byte) 0xEE;
+        stream[2] = 0x7F;
+        System.arraycopy(bad, 0, stream, 3, bad.length);
+        System.arraycopy(good, 0, stream, 3 + bad.length, good.length);
+        CrsfStreamParser parser = new CrsfStreamParser();
+        // Split across two feeds, as 20 ms drains cut frames anywhere.
+        assertNull(parser.feed(java.util.Arrays.copyOf(stream, 20), 1));
+        CrsfRcChannels rc =
+                parser.feed(java.util.Arrays.copyOfRange(stream, 20, stream.length), 2);
+        assertEquals(1, parser.rcFrames());
+        assertEquals(2012, rc.channel(3), 1);
+        assertEquals(1500, rc.channel(4), 1);
+        assertEquals(CrsfChannelsFrame.STATUS_CH5_ARMING, rc.status);
     }
 
     private static int unpack(byte[] frame, int ch) {

@@ -1,83 +1,55 @@
 package com.flyingcomputer.gndfull.transport.rover;
 
-import com.flyingcomputer.gndfull.control.DrivingState;
+import com.flyingcomputer.gndfull.crsf.CrsfRcChannels;
 
-/** Maps EdgeTX mixed outputs to rover_sample RC fields. */
+/**
+ * Maps the CRSF channels EdgeTX sends to its external module to rover_sample RC fields.
+ *
+ * <pre>
+ * CH1, CH2  unused
+ * CH3       throttle
+ * CH4       servo 1 (rover CH1): steering
+ * CH5       arm (EdgeTX CRSF arming mode CH5: >= 1500 us; Switch mode: status byte)
+ * CH6       mode: < 1500 us manual steering (rover mode 0), >= 1500 us rate steering (mode 1)
+ * CH7       servo 2 (rover CH2, aux)
+ * CH8       servo 3 (rover CH3, aux2)
+ * </pre>
+ */
 public final class EdgeTxOutputMapper {
-    public static final int DEFAULT_STEER_CHANNEL = 0;
-    public static final int DEFAULT_THR_CHANNEL = 2;
-    public static final int ARM_SWITCH_INDEX = 3; // SA on lower row
-    /** EdgeTX CH6 / CH7 (0-based 5 / 6) drive the rover's CH2 / CH3 servos (aux / aux2). */
-    public static final int DEFAULT_AUX_CHANNEL = 5;
-    public static final int DEFAULT_AUX2_CHANNEL = 6;
+    public static final int CH_THROTTLE = 3;
+    public static final int CH_STEER = 4;
+    public static final int CH_ARM = 5;
+    public static final int CH_MODE = 6;
+    public static final int CH_SERVO2 = 7;
+    public static final int CH_SERVO3 = 8;
 
-    private final int steerChannel;
-    private final int thrChannel;
-    private final int auxChannel;
-    private final int aux2Channel;
+    /** rover_sample steering modes (param `mode`). */
+    public static final int MODE_MANUAL = 0;
+    public static final int MODE_RATE = 1;
 
-    public EdgeTxOutputMapper() {
-        this(DEFAULT_STEER_CHANNEL, DEFAULT_THR_CHANNEL, DEFAULT_AUX_CHANNEL, DEFAULT_AUX2_CHANNEL);
-    }
+    private EdgeTxOutputMapper() {}
 
-    public EdgeTxOutputMapper(int steerChannel, int thrChannel, int auxChannel, int aux2Channel) {
-        this.steerChannel = steerChannel;
-        this.thrChannel = thrChannel;
-        this.auxChannel = auxChannel;
-        this.aux2Channel = aux2Channel;
-    }
-
-    public RoverRcFrame map(
-            int seq,
-            long timeUsLow32,
-            int[] outputs,
-            int[] switches,
-            DrivingState driving,
-            boolean sendArmFlag) {
-        int steer = pwmToPerMille(channel(outputs, steerChannel));
-        int thr = pwmToPerMille(channel(outputs, thrChannel));
-        // Aux servos follow their channels whatever SA says; the rover holds them at
-        // ch2_failsafe / ch3_failsafe when RC stops.
-        int aux = pwmToPerMille(channel(outputs, auxChannel));
-        int aux2 = pwmToPerMille(channel(outputs, aux2Channel));
-        int flags = 0;
-        if (sendArmFlag && driving == DrivingState.ARMED) {
-            flags |= RoverRcFrame.FLAG_ARM;
-        }
-        boolean saUp = switches.length > ARM_SWITCH_INDEX && switches[ARM_SWITCH_INDEX] > 0;
-        if (!saUp) {
-            thr = 0;
-            steer = 0;
-            flags = 0;
-        }
+    /**
+     * @param allowArm false while the app blocks driving (menu open, radio off, USB failsafe):
+     *     the arm flag is never sent and throttle is 0.
+     */
+    public static RoverRcFrame map(int seq, long timeUsLow32, CrsfRcChannels ch, boolean allowArm) {
+        int flags = allowArm && ch.armed() ? RoverRcFrame.FLAG_ARM : 0;
+        int mode = ch.channel(CH_MODE) >= 1500 ? MODE_RATE : MODE_MANUAL;
         return new RoverRcFrame(
                 seq,
                 timeUsLow32,
                 RoverRcFrame.SRC_PHONE,
                 flags,
-                RoverRcFrame.MODE_NONE,
-                steer,
-                thr,
-                aux,
-                aux2);
+                mode,
+                pwmToPerMille(ch.channel(CH_STEER)),
+                allowArm ? pwmToPerMille(ch.channel(CH_THROTTLE)) : 0,
+                pwmToPerMille(ch.channel(CH_SERVO2)),
+                pwmToPerMille(ch.channel(CH_SERVO3)));
     }
 
-    public boolean armIntent(int[] switches) {
-        return switches.length > ARM_SWITCH_INDEX && switches[ARM_SWITCH_INDEX] > 0;
-    }
-
-    public boolean throttleNeutral(int[] outputs) {
-        return Math.abs(pwmToPerMille(channel(outputs, thrChannel))) <= 50;
-    }
-
-    private static int channel(int[] outputs, int index) {
-        if (outputs == null || index < 0 || index >= outputs.length) {
-            return 1500;
-        }
-        return outputs[index];
-    }
-
+    /** EdgeTX +-100 % = 1500 +- 512 us = +-1000. */
     public static int pwmToPerMille(int pwmMicroseconds) {
-        return Math.max(-1000, Math.min(1000, (pwmMicroseconds - 1500) * 1000 / 500));
+        return Math.max(-1000, Math.min(1000, Math.round((pwmMicroseconds - 1500) * 1000f / 512f)));
     }
 }

@@ -159,7 +159,9 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                             @Override
                             public void onVideoMetrics(VideoMetrics.Snapshot metrics) {}
                         },
-                        false);
+                        // RC + telemetry on USB channel 2, driven by EdgeTX's CRSF
+                        // external module (see RoverControlBridge).
+                        true);
 
         float density = getResources().getDisplayMetrics().density;
         int padH = Math.round(density * 6f);

@@ -14,6 +14,17 @@ export MAX_JOBS="${MAX_JOBS:-1}"
 export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"
 mkdir -p "$OUT_DIR"
 cd "$EDGETX_SRC"
+# gnd patches on the EdgeTX simulator (external module S.Port bridge, ...).
+PATCH_DIR="$(cd "$(dirname "$0")" && pwd)/edgetx-patches"
+for p in "$PATCH_DIR"/*.patch; do
+  [[ -e "$p" ]] || continue
+  if git apply --reverse --check "$p" 2>/dev/null; then
+    echo "already applied: $(basename "$p")"
+  else
+    git apply "$p"
+    echo "applied: $(basename "$p")"
+  fi
+done
 export FLAVOR="${FLAVOR:-tx16s}"
 tools/build-wasm-modules.sh "$EDGETX_SRC" "${EDGETX_SRC}/output"
 cp -v "${EDGETX_SRC}/output/edgetx-${FLAVOR}-simulator.wasm" \
