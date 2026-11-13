@@ -14,6 +14,10 @@ public final class RoverCrossfireTelemetry {
     public static final byte LINK_STATISTICS = 0x14;
     public static final byte ATTITUDE = 0x1E;
     public static final byte FLIGHT_MODE = 0x21;
+    public static final byte DEVICE_INFO = 0x29;
+    public static final byte RADIO_ADDRESS = (byte) 0xEA;
+    public static final byte MODULE_ADDRESS = (byte) 0xEE;
+    public static final String MODULE_NAME = "gnd rover link";
 
     private RoverCrossfireTelemetry() {}
 
@@ -96,6 +100,33 @@ public final class RoverCrossfireTelemetry {
         byte[] p = new byte[s.length + 1]; // NUL-terminated
         System.arraycopy(s, 0, p, 0, s.length);
         return frame(FLIGHT_MODE, p);
+    }
+
+    /**
+     * Device info (0x29), radio <- module, answering EdgeTX's device ping. EdgeTX sends ping frames
+     * in place of channel frames until it gets one (crossfireModuleStatus.queryCompleted).
+     * Extended frame: dest, origin, name NUL, serial u32, hw u32, sw u32 (0.major.minor.rev),
+     * field count, parameter version. Not "ELRS": EdgeTX then keeps CH5 arming mode.
+     */
+    public static byte[] deviceInfo() {
+        byte[] name = (MODULE_NAME + "\0").getBytes(StandardCharsets.US_ASCII);
+        byte[] p = new byte[2 + name.length + 12 + 2];
+        int i = 0;
+        p[i++] = RADIO_ADDRESS; // destination
+        p[i++] = MODULE_ADDRESS; // origin
+        System.arraycopy(name, 0, p, i, name.length);
+        i += name.length;
+        i += 4; // serial 0
+        i += 4; // hardware version 0
+        p[i++] = 0;
+        p[i++] = 1; // software 1.0.0
+        p[i++] = 0;
+        p[i++] = 0;
+        p[i++] = 0; // field count
+        p[i] = 0; // parameter version
+        byte[] f = frame(DEVICE_INFO, p);
+        f[0] = RADIO_ADDRESS;
+        return f;
     }
 
     static byte[] frame(byte type, byte[] payload) {

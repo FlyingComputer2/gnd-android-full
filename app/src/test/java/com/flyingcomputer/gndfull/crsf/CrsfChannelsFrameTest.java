@@ -126,6 +126,30 @@ public final class CrsfChannelsFrameTest {
         assertEquals(CrsfChannelsFrame.STATUS_CH5_ARMING, rc.status);
     }
 
+    @Test
+    public void deviceInfoMatchesEdgeTxOffsets() {
+        byte[] f = RoverCrossfireTelemetry.deviceInfo();
+        int len = f[1] & 0xFF;
+        assertEquals(f.length, len + 2);
+        assertEquals(RoverCrossfireTelemetry.DEVICE_INFO, f[2]);
+        assertEquals(RoverCrossfireTelemetry.MODULE_ADDRESS, f[4]); // EdgeTX checks rxBuffer[4]
+        int nameSize = len - 18; // EdgeTX: rxBuffer[1] - 18, name incl. NUL
+        assertEquals(RoverCrossfireTelemetry.MODULE_NAME.length() + 1, nameSize);
+        assertEquals(0, f[5 + nameSize - 1]);
+        assertEquals(1, f[14 + nameSize]); // major
+        assertEquals(CrsfCrc8.compute(f, 2, len - 1), f[len + 1] & 0xFF);
+    }
+
+    @Test
+    public void parserFlagsPing() {
+        byte[] ping = {(byte) 0xC8, 4, 0x28, 0x00, (byte) 0xEA, 0};
+        ping[5] = (byte) CrsfCrc8.compute(ping, 2, 3);
+        CrsfStreamParser parser = new CrsfStreamParser();
+        assertNull(parser.feed(ping, 1));
+        assertEquals(true, parser.takePing());
+        assertEquals(false, parser.takePing());
+    }
+
     private static int unpack(byte[] frame, int ch) {
         int bit = ch * CrsfChannelsFrame.CHANNEL_BITS;
         int v = 0;
