@@ -30,18 +30,13 @@ public final class Tx16InputMap {
         return "SF".equals(label) || "SH".equals(label);
     }
 
-    /** UI stick -1024..1024 → EdgeTX host units (Companion convention). */
+    /**
+     * UI stick -1024..1024 (right / up positive) → EdgeTX host units, all four axes alike. The
+     * {@code inverted} flags on LV / RH in tx16s.json are applied by the STM32 ADC driver only;
+     * the simulator reads simuGetAnalog as is, so flipping them here reversed both axes.
+     */
     public static int stickToEdgeTxPerMille(int norm) {
         return Math.max(-1024, Math.min(1024, norm));
-    }
-
-    /** LV and RH are inverted in tx16s.json ADC inputs. */
-    public static int stickY(int normY, int analogIndex) {
-        int v = stickToEdgeTxPerMille(normY);
-        if (analogIndex == ANALOG_LV || analogIndex == ANALOG_RH) {
-            v = -v;
-        }
-        return v;
     }
 
     /** UI switch state → {@code simuSetSwitch} (-1 / 0 / 1). */
