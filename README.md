@@ -6,7 +6,7 @@ Android ground station with on-device EdgeTX UI, virtual gimbals/switches, and U
 
 | Area | Status |
 | --- | --- |
-| Portrait RC layout (video, OSD placeholder, EdgeTX nav row, LCD, switches, gimbals) | Implemented |
+| Portrait RC layout (thin app bar, video, maximized LCD, TX16S key strip, switches, gimbals) | Implemented |
 | EdgeTX TX16S via WAMR + wasm (`WasmEdgeTxAdapter`) | Implemented — requires wasm asset |
 | Fake EdgeTX (`FakeEdgeTxAdapter`) | Fallback without wasm |
 | USB RGP4 v2 video channel 0 (`rtp-h264-v1`) | Ported from [gnd-android](https://github.com/FlyingComputer2/gnd-android) |

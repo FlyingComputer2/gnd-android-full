@@ -8,4 +8,5 @@ native-build/
 build-apk*.log
 sdk-install.log
 ci-artifacts/
+app/src/main/assets/edgetx/edgetx-sd-seed.zip
 

@@ -49,13 +49,15 @@ public final class SwitchStripView extends View {
     protected void onDraw(Canvas canvas) {
         float cell = getWidth() / 4f;
         float h = getHeight();
+        // One line per switch ("SE  —") so the strip can stay short.
+        text.setTextSize(h * 0.42f);
+        float baseline = h / 2f - (text.descent() + text.ascent()) / 2f;
         for (int i = 0; i < 4; i++) {
             float left = i * cell;
             canvas.drawRect(left + 4, 4, left + cell - 4, h - 4, box);
             String label = i < labels.length ? labels[i] : "";
-            canvas.drawText(label, left + cell / 2f, h * 0.45f, text);
             String pos = positionLabel(positions[i], maxPositions[i]);
-            canvas.drawText(pos, left + cell / 2f, h * 0.78f, text);
+            canvas.drawText(label + "  " + pos, left + cell / 2f, baseline, text);
         }
     }
 

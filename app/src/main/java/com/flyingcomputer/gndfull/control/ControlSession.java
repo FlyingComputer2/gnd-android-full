@@ -1,5 +1,8 @@
 package com.flyingcomputer.gndfull.control;
 
+import com.flyingcomputer.gndfull.crsf.CrsfRcChannels;
+import com.flyingcomputer.gndfull.crsf.CrsfStreamParser;
+import com.flyingcomputer.gndfull.crsf.RoverCrossfireTelemetry;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxInputSnapshot;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
@@ -33,6 +36,14 @@ public final class ControlSession implements AutoCloseable {
     private volatile boolean menuBlocksDriving;
     private volatile boolean radioPowered = true;
     private volatile ScheduledFuture<?> refresh;
+    /** EdgeTX external module (CRSF) output; owner thread only. */
+    private final CrsfStreamParser crsfOut = new CrsfStreamParser();
+    private volatile CrsfRcChannels lastCrsf;
+    private volatile long extTxBytes;
+    private volatile long extRxPushes;
+    private volatile long extRxRejected;
+    private volatile long deviceInfoSent;
+    private volatile Runnable crsfListener;
 
     public ControlSession(EdgeTxAdapter adapter) {
         this.adapter = adapter;
@@ -55,12 +66,13 @@ public final class ControlSession implements AutoCloseable {
                                     () -> {
                                         if (adapter instanceof WasmEdgeTxAdapter wasm) {
                                             wasm.pump();
+                                            drainExternalModule(wasm);
                                         }
                                         refreshOutputs();
                                     });
                         },
-                        50,
-                        50,
+                        20,
+                        20,
                         TimeUnit.MILLISECONDS);
     }
 
@@ -70,6 +82,13 @@ public final class ControlSession implements AutoCloseable {
 
     public boolean radioPowered() {
         return radioPowered;
+    }
+
+    /** Pause host audio when the UI is in the background; do not reboot EdgeTX. */
+    public void setForeground(boolean foreground) {
+        if (adapter instanceof WasmEdgeTxAdapter wasm) {
+            wasm.setForeground(foreground);
+        }
     }
 
     public boolean menuBlocksInput() {
@@ -130,10 +149,10 @@ public final class ControlSession implements AutoCloseable {
         if (open) {
             state = DrivingState.INACTIVE;
             disarm();
-            publishNeutral();
         } else if (state == DrivingState.INACTIVE || state == DrivingState.FAILSAFE) {
             state = DrivingState.READY;
         }
+        syncHardwareInput();
     }
 
     public void requestArm() {
@@ -143,24 +162,37 @@ public final class ControlSession implements AutoCloseable {
         state = DrivingState.ARMED;
     }
 
+    /**
+     * Leaves the USB-loss FAILSAFE once the arm switch is seen off, so a reconnect never re-arms
+     * on a switch left high. The rover itself also needs neutral throttle to arm.
+     */
+    public void clearFailsafeOnDisarmedSwitch() {
+        if (state == DrivingState.FAILSAFE && !menuBlocksDriving && radioPowered) {
+            state = DrivingState.READY;
+        }
+    }
+
+    /** Rover-side state only: EdgeTX keeps the operator's inputs (the bridge calls this each tick). */
     public void disarm() {
         if (state == DrivingState.ARMED) {
             state = DrivingState.READY;
         }
-        publishNeutral();
     }
 
+  /**
+   * Pushes stick/switch state into EdgeTX. FAILSAFE and the app hamburger gate rover output only,
+   * not the virtual radio used for model setup and mixer previews.
+   */
     public void publishInput(EdgeTxInputSnapshot snapshot) {
         pending.set(snapshot);
-        if (!radioPowered || menuBlocksDriving || state == DrivingState.FAILSAFE) {
+        if (!radioPowered) {
             publishNeutral();
             return;
         }
-        loop.execute(
-                () -> {
-                    adapter.submitInput(snapshot);
-                    refreshOutputs();
-                });
+        if (menuBlocksDriving) {
+            return;
+        }
+        syncHardwareInput(snapshot);
     }
 
     public void keyEvent(EdgeTxKey key, boolean down) {
@@ -170,6 +202,26 @@ public final class ControlSession implements AutoCloseable {
                         adapter.keyDown(key);
                     } else {
                         adapter.keyUp(key);
+                    }
+                    refreshOutputs();
+                });
+    }
+
+    public void rotaryEvent(int steps) {
+        loop.execute(
+                () -> {
+                    adapter.rotaryEncoder(steps);
+                    refreshOutputs();
+                });
+    }
+
+    public void trimEvent(int trimIndex, boolean down) {
+        loop.execute(
+                () -> {
+                    if (down) {
+                        adapter.trimDown(trimIndex);
+                    } else {
+                        adapter.trimUp(trimIndex);
                     }
                     refreshOutputs();
                 });
@@ -191,7 +243,79 @@ public final class ControlSession implements AutoCloseable {
 
     public void onUsbDisconnected() {
         state = DrivingState.FAILSAFE;
-        publishNeutral();
+    }
+
+    private void syncHardwareInput() {
+        syncHardwareInput(pending.get());
+    }
+
+    private void syncHardwareInput(EdgeTxInputSnapshot snapshot) {
+        if (!radioPowered || menuBlocksDriving) {
+            return;
+        }
+        loop.execute(
+                () -> {
+                    adapter.submitInput(snapshot);
+                    refreshOutputs();
+                });
+    }
+
+    /**
+     * Newest CRSF RC channels frame EdgeTX sent to its external module (External RF = CRSF), or
+     * null if none yet. Check {@link CrsfRcChannels#receivedNanos} for staleness.
+     */
+    public CrsfRcChannels lastCrsf() {
+        return lastCrsf;
+    }
+
+    /** Called on the EdgeTX owner thread right after a new CRSF frame is drained; keep it short. */
+    public void setCrsfListener(Runnable listener) {
+        crsfListener = listener;
+    }
+
+    /** Feeds CRSF telemetry bytes to EdgeTX's external module, as if from the module. */
+    public void pushExternalModuleRx(byte[] frames) {
+        if (frames == null || frames.length == 0 || !radioPowered) {
+            return;
+        }
+        loop.execute(
+                () -> {
+                    if (adapter instanceof WasmEdgeTxAdapter wasm) {
+                        if (wasm.pushExternalModuleRx(frames)) {
+                            extRxPushes++;
+                        } else {
+                            extRxRejected++;
+                        }
+                    }
+                });
+    }
+
+    /** One line for logcat: external module bytes, CRSF frames and telemetry pushes. */
+    public String crsfStats() {
+        return "ext_tx_bytes=" + extTxBytes
+                + " crsf_rc=" + crsfOut.rcFrames()
+                + " crsf_crc_err=" + crsfOut.crcErrors()
+                + " pings=" + crsfOut.pings()
+                + " device_info_sent=" + deviceInfoSent
+                + " ext_rx_push=" + extRxPushes
+                + " ext_rx_rejected=" + extRxRejected;
+    }
+
+    private void drainExternalModule(WasmEdgeTxAdapter wasm) {
+        byte[] out = wasm.readExternalModuleTx();
+        extTxBytes += out.length;
+        CrsfRcChannels rc = crsfOut.feed(out, System.nanoTime());
+        if (rc != null) {
+            lastCrsf = rc;
+            Runnable l = crsfListener;
+            if (l != null) {
+                l.run();
+            }
+        }
+        // Act as the module: answer EdgeTX's device ping, or it never sends channels.
+        if (crsfOut.takePing() && wasm.pushExternalModuleRx(RoverCrossfireTelemetry.deviceInfo())) {
+            deviceInfoSent++;
+        }
     }
 
     private void publishNeutral() {

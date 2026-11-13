@@ -33,6 +33,10 @@ public final class FakeEdgeTxAdapter implements EdgeTxAdapter {
         }
     }
 
+    public EdgeTxInputSnapshot lastInput() {
+        return input.get();
+    }
+
     @Override
     public void keyDown(EdgeTxKey key) {
         // Navigation keys are no-ops in the fake LCD for now.

@@ -3,10 +3,13 @@ package com.flyingcomputer.gndfull.transport.rover;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
-/** rover_sample RC payload (15 bytes inside MSP func 0x4201). */
+/**
+ * rover_sample RC payload inside MSP func 0x4201: 17 bytes, aux = rover CH2 servo, aux2 = CH3.
+ * Rovers before aux2 accept only the 15-byte frame, so update the rover first.
+ */
 public final class RoverRcFrame {
     public static final int FUNCTION = 0x4201;
-    public static final int PAYLOAD_BYTES = 15;
+    public static final int PAYLOAD_BYTES = 17;
     public static final int SRC_PHONE = 1;
     public static final int FLAG_ARM = 0x01;
     public static final int MODE_NONE = 0xFF;
@@ -19,6 +22,7 @@ public final class RoverRcFrame {
     public final int steer;
     public final int thr;
     public final int aux;
+    public final int aux2;
 
     public RoverRcFrame(
             int seq,
@@ -29,6 +33,19 @@ public final class RoverRcFrame {
             int steer,
             int thr,
             int aux) {
+        this(seq, timeUsLow32, src, flags, mode, steer, thr, aux, 0);
+    }
+
+    public RoverRcFrame(
+            int seq,
+            long timeUsLow32,
+            int src,
+            int flags,
+            int mode,
+            int steer,
+            int thr,
+            int aux,
+            int aux2) {
         this.seq = seq & 0xFFFF;
         this.timeUsLow32 = timeUsLow32 & 0xFFFFFFFFL;
         this.src = src & 0xFF;
@@ -37,6 +54,7 @@ public final class RoverRcFrame {
         this.steer = clamp(steer);
         this.thr = clamp(thr);
         this.aux = clamp(aux);
+        this.aux2 = clamp(aux2);
     }
 
     public byte[] pack() {
@@ -50,6 +68,7 @@ public final class RoverRcFrame {
                 .putShort((short) steer)
                 .putShort((short) thr)
                 .putShort((short) aux)
+                .putShort((short) aux2)
                 .array();
     }
 

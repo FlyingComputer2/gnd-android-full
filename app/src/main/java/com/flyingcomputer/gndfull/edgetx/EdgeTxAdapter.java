@@ -30,6 +30,14 @@ public interface EdgeTxAdapter extends AutoCloseable {
 
     void keyUp(EdgeTxKey key);
 
+    /** {@code simuSetTrim} index; default no-op for the fake adapter. */
+    /** Rotary encoder (roller) steps; negative = up / previous, positive = down / next. */
+    default void rotaryEncoder(int steps) {}
+
+    default void trimDown(int trimIndex) {}
+
+    default void trimUp(int trimIndex) {}
+
     LcdMetadata lcdMetadata();
 
     /** Owned rgb565 little-endian buffer; length width*height*2. */

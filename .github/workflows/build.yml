@@ -17,6 +17,8 @@ jobs:
         with:
           gradle-version: '8.11.1'
       - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'
+      - name: EdgeTX SD + sounds seed (v2.12.3)
+        run: bash scripts/fetch-edgetx-sd-assets.sh
       - run: gradle testDebugUnitTest assembleDebug --stacktrace
       - run: cmake -S app/src/main/cpp -B native-build -DROVER_NATIVE_TESTS=ON && cmake --build native-build -j 2 && ctest --test-dir native-build --output-on-failure
       - uses: actions/upload-artifact@v4

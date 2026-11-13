@@ -9,7 +9,7 @@ import android.util.AttributeSet;
 import android.view.View;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 
-/** Displays the latest EdgeTX RGB565 framebuffer with letterboxing. */
+/** Displays the latest EdgeTX RGB565 framebuffer, sized to the TX16S 480×272 aspect. */
 public final class EdgeTxLcdView extends View {
     public interface TouchMapper {
         void onLcdTouch(int lcdX, int lcdY, boolean up);
@@ -93,6 +93,17 @@ public final class EdgeTxLcdView extends View {
         }
         frame.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(rgb565));
         invalidate();
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        int width = MeasureSpec.getSize(widthMeasureSpec);
+        if (width <= 0) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            return;
+        }
+        int height = Math.round(width * 272f / 480f);
+        setMeasuredDimension(width, height);
     }
 
     @Override

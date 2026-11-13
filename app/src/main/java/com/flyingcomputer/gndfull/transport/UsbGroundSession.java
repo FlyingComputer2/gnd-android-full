@@ -6,6 +6,7 @@ import android.view.Surface;
 import com.flyingcomputer.gndfull.UsbProxy;
 import com.flyingcomputer.gndfull.VideoReceiver;
 import com.flyingcomputer.gndfull.control.ControlSession;
+import com.flyingcomputer.gndfull.crsf.RoverCrossfireTelemetry;
 import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
 import com.flyingcomputer.gndfull.video.VideoMetrics;
 
@@ -27,6 +28,11 @@ public final class UsbGroundSession implements AutoCloseable {
     private UsbProxy proxy;
     private VideoReceiver video;
     private final VideoMetrics videoMetrics = new VideoMetrics();
+    /**
+     * krono rtt client on USB channel 3 (the ground P4's clock, which the rover follows). One per
+     * connection: close() ends its thread, and MainActivity closes the session before reconnecting.
+     */
+    private SynchClient clock;
     private final RcUsbHandler rcUsb = new RcUsbHandler();
     private RoverControlBridge bridge;
 
@@ -36,6 +42,12 @@ public final class UsbGroundSession implements AutoCloseable {
         this.enableRc = enableRc;
         rcUsb.setListener(
                 telem -> {
+                    // As CRSF telemetry from EdgeTX's external module: link stats
+                    // (gnd->rov RSSI, LQ), battery (VBUS), attitude, flight mode.
+                    byte[] crsf = RoverCrossfireTelemetry.frames(telem);
+                    if (crsf != null) {
+                        control.pushExternalModuleRx(crsf);
+                    }
                     if (listener != null) {
                         listener.onTelemetry(telem);
                     }
@@ -54,12 +66,17 @@ public final class UsbGroundSession implements AutoCloseable {
                             }
                         });
         UsbProxy.Channel videoChannel = proxy.registerHandler(0, video);
-        if (enableRc) {
-            bridge = new RoverControlBridge(control, rcUsb);
-        }
+        clock = new SynchClient();
+        UsbProxy.Channel syncChannel = proxy.registerHandler(SynchClient.CHANNEL, clock);
+        // Handlers keep their own bridge: closeInternals() clears the field before the proxy's
+        // channel workers deliver onClose.
+        final RoverControlBridge rcBridge =
+                enableRc ? new RoverControlBridge(control, rcUsb, clock) : null;
+        bridge = rcBridge;
         if (!enableRc) {
             proxy.connect(manager, device);
             videoChannel.open(8);
+            syncChannel.open(2);
             control.onUsbConnected();
             if (listener != null) {
                 listener.onStatus("Video channel 0 open (EdgeTX-only mode)");
@@ -76,7 +93,7 @@ public final class UsbGroundSession implements AutoCloseable {
                     @Override
                     public void onOpen(UsbProxy.Channel sender) {
                         rcUsb.onOpen(sender);
-                        bridge.onRcChannelOpen();
+                        rcBridge.onRcChannelOpen();
                         if (listener != null) {
                             listener.onStatus("RC channel 2 open (rc-v1)");
                         }
@@ -90,13 +107,14 @@ public final class UsbGroundSession implements AutoCloseable {
                     @Override
                     public void onClose() {
                         rcUsb.onClose();
-                        bridge.onRcChannelClose();
+                        rcBridge.onRcChannelClose();
                     }
                 };
         UsbProxy.Channel rcChannel = proxy.registerHandler(2, rcHandler);
         proxy.connect(manager, device);
         videoChannel.open(8);
         rcChannel.open(8);
+        syncChannel.open(2);
         control.onUsbConnected();
         if (listener != null) {
             listener.onStatus("Video channel 0 open (rtp-h264-v1)");
@@ -106,6 +124,11 @@ public final class UsbGroundSession implements AutoCloseable {
 
     public VideoMetrics videoMetrics() {
         return videoMetrics;
+    }
+
+    /** Ground-clock time source (USB channel 3), or null when not connected. */
+    public SynchClient clock() {
+        return clock;
     }
 
     public RoverControlBridge controlBridge() {
@@ -134,6 +157,10 @@ public final class UsbGroundSession implements AutoCloseable {
         if (video != null) {
             video.close();
             video = null;
+        }
+        if (clock != null) {
+            clock.close();
+            clock = null;
         }
     }
 }

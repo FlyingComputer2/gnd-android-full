@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -22,6 +23,10 @@ void edgetx_wasm_set_analog(EdgeTxWasmHost* host, uint8_t index, int16_t value);
 void edgetx_wasm_set_switch(EdgeTxWasmHost* host, uint8_t index, int8_t state);
 
 void edgetx_wasm_set_key(EdgeTxWasmHost* host, uint8_t key, bool state);
+// Roller: negative = up / previous, positive = down / next (simuRotaryEncoderEvent).
+void edgetx_wasm_rotary(EdgeTxWasmHost* host, int32_t steps);
+
+void edgetx_wasm_set_trim(EdgeTxWasmHost* host, uint8_t trim, bool state);
 
 void edgetx_wasm_touch_down(EdgeTxWasmHost* host, int16_t x, int16_t y);
 
@@ -39,3 +44,12 @@ bool edgetx_wasm_copy_lcd_rgb565(EdgeTxWasmHost* host, std::vector<uint8_t>* out
 uint8_t edgetx_wasm_copy_outputs(EdgeTxWasmHost* host, int16_t* buf, uint8_t max_count);
 
 bool edgetx_wasm_boot_complete(const EdgeTxWasmHost* host);
+
+using EdgetxAudioChunkFn = std::function<void(const uint8_t*, uint32_t)>;
+
+void edgetx_wasm_set_audio_chunk_handler(EdgeTxWasmHost* host, EdgetxAudioChunkFn handler);
+// External module S.Port bridge (needs the gnd simulator patch; 0 / false
+// without it). tx_read drains what EdgeTX sent (CRSF channel frames);
+// rx_push hands bytes (CRSF telemetry) to the module's frame parser.
+uint32_t edgetx_wasm_ext_module_tx_read(EdgeTxWasmHost* host, uint8_t* out, uint32_t max);
+bool edgetx_wasm_ext_module_rx_push(EdgeTxWasmHost* host, const uint8_t* data, uint32_t len);
