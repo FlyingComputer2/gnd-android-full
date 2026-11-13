@@ -297,7 +297,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 upper,
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
-                        (int) (getResources().getDisplayMetrics().density * 52)));
+                        (int) (getResources().getDisplayMetrics().density * 34)));
 
         SwitchStripView lower = new SwitchStripView(this, null);
         lower.setLabels(new String[] {"SD", "SC", "SB", "SA"});
@@ -306,7 +306,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 lower,
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
-                        (int) (getResources().getDisplayMetrics().density * 52)));
+                        (int) (getResources().getDisplayMetrics().density * 34)));
 
         LinearLayout gimbals = new LinearLayout(this);
         gimbals.setOrientation(LinearLayout.HORIZONTAL);

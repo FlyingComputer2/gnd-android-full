@@ -90,6 +90,27 @@ public final class EdgeTxUiWire {
         addKey(nav, heightPx, R.drawable.ic_key_mdl, "MDL", EdgeTxKey.MDL);
     }
 
+    private static final int KEY_FACE = 0xfff7f9fa;
+    private static final int KEY_INK = 0xff1c2b33;
+    private static final int KEY_EDGE = 0xff687984;
+
+    private static android.graphics.drawable.Drawable keyFace(float density) {
+        android.graphics.drawable.StateListDrawable states =
+                new android.graphics.drawable.StateListDrawable();
+        states.addState(new int[] {android.R.attr.state_pressed}, keyShape(density, KEY_INK));
+        states.addState(new int[] {}, keyShape(density, KEY_FACE));
+        return states;
+    }
+
+    private static android.graphics.drawable.GradientDrawable keyShape(float density, int fill) {
+        android.graphics.drawable.GradientDrawable g =
+                new android.graphics.drawable.GradientDrawable();
+        g.setColor(fill);
+        g.setCornerRadius(density * 6f);
+        g.setStroke(Math.max(1, Math.round(density)), KEY_EDGE);
+        return g;
+    }
+
     private static android.widget.ImageButton iconButton(
             LinearLayout nav, int heightPx, int icon, String label) {
         android.content.Context ctx = nav.getContext();
@@ -98,9 +119,14 @@ public final class EdgeTxUiWire {
         b.setImageResource(icon);
         b.setContentDescription(label);
         b.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
-        int pad = Math.round(density * 6f);
+        int pad = Math.round(density * 7f);
         b.setPadding(pad, pad, pad, pad);
-        b.setColorFilter(0xff1c2b33);
+        // Light key face, dark icon (as the switch tiles); inverted while pressed.
+        b.setBackground(keyFace(density));
+        b.setImageTintList(
+                new android.content.res.ColorStateList(
+                        new int[][] {new int[] {android.R.attr.state_pressed}, new int[] {}},
+                        new int[] {KEY_FACE, KEY_INK}));
         b.setMinimumWidth(0);
         b.setMinimumHeight(0);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, heightPx, 1f);
