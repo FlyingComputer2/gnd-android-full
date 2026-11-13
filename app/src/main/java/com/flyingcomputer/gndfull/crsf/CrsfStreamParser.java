@@ -9,11 +9,14 @@ import java.util.Arrays;
  */
 public final class CrsfStreamParser {
     private static final int MAX_FRAME = 64;
+    static final byte PING_DEVICES = 0x28;
     private final byte[] buf = new byte[1024 + MAX_FRAME];
     private int len;
     private CrsfRcChannels lastRc;
     private long rcFrames;
     private long crcErrors;
+    private long pings;
+    private boolean pingPending;
 
     /** Feeds bytes; returns the newest RC channels frame seen in them, or null. */
     public CrsfRcChannels feed(byte[] data, long nowNanos) {
@@ -47,6 +50,10 @@ public final class CrsfStreamParser {
                 p++;
                 continue;
             }
+            if (buf[p + 2] == PING_DEVICES) {
+                pings++;
+                pingPending = true;
+            }
             CrsfRcChannels rc = decodeRc(buf, p, frameLen, nowNanos);
             if (rc != null) {
                 newest = rc;
@@ -74,6 +81,17 @@ public final class CrsfStreamParser {
 
     public long crcErrors() {
         return crcErrors;
+    }
+
+    public long pings() {
+        return pings;
+    }
+
+    /** True once per batch of device pings EdgeTX sent; the caller answers with device info. */
+    public boolean takePing() {
+        boolean p = pingPending;
+        pingPending = false;
+        return p;
     }
 
     /** RC channels frame at {@code off}: type 0x16, 22 packed bytes, optional EdgeTX status byte. */

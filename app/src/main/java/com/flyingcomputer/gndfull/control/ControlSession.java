@@ -2,6 +2,7 @@ package com.flyingcomputer.gndfull.control;
 
 import com.flyingcomputer.gndfull.crsf.CrsfRcChannels;
 import com.flyingcomputer.gndfull.crsf.CrsfStreamParser;
+import com.flyingcomputer.gndfull.crsf.RoverCrossfireTelemetry;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxInputSnapshot;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
@@ -41,6 +42,7 @@ public final class ControlSession implements AutoCloseable {
     private volatile long extTxBytes;
     private volatile long extRxPushes;
     private volatile long extRxRejected;
+    private volatile long deviceInfoSent;
 
     public ControlSession(EdgeTxAdapter adapter) {
         this.adapter = adapter;
@@ -243,6 +245,8 @@ public final class ControlSession implements AutoCloseable {
         return "ext_tx_bytes=" + extTxBytes
                 + " crsf_rc=" + crsfOut.rcFrames()
                 + " crsf_crc_err=" + crsfOut.crcErrors()
+                + " pings=" + crsfOut.pings()
+                + " device_info_sent=" + deviceInfoSent
                 + " ext_rx_push=" + extRxPushes
                 + " ext_rx_rejected=" + extRxRejected;
     }
@@ -253,6 +257,10 @@ public final class ControlSession implements AutoCloseable {
         CrsfRcChannels rc = crsfOut.feed(out, System.nanoTime());
         if (rc != null) {
             lastCrsf = rc;
+        }
+        // Act as the module: answer EdgeTX's device ping, or it never sends channels.
+        if (crsfOut.takePing() && wasm.pushExternalModuleRx(RoverCrossfireTelemetry.deviceInfo())) {
+            deviceInfoSent++;
         }
     }
 
