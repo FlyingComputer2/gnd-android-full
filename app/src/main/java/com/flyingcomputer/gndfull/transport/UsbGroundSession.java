@@ -6,6 +6,7 @@ import android.view.Surface;
 import com.flyingcomputer.gndfull.UsbProxy;
 import com.flyingcomputer.gndfull.VideoReceiver;
 import com.flyingcomputer.gndfull.control.ControlSession;
+import com.flyingcomputer.gndfull.crsf.RoverCrossfireTelemetry;
 import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
 import com.flyingcomputer.gndfull.video.VideoMetrics;
 
@@ -36,6 +37,10 @@ public final class UsbGroundSession implements AutoCloseable {
         this.enableRc = enableRc;
         rcUsb.setListener(
                 telem -> {
+                    byte[] crsf = RoverCrossfireTelemetry.linkStatistics(telem);
+                    if (crsf != null) {
+                        control.injectCrossfireTelemetry(crsf);
+                    }
                     if (listener != null) {
                         listener.onTelemetry(telem);
                     }

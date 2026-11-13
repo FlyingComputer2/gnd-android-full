@@ -46,3 +46,5 @@ bool edgetx_wasm_boot_complete(const EdgeTxWasmHost* host);
 using EdgetxAudioChunkFn = std::function<void(const uint8_t*, uint32_t)>;
 
 void edgetx_wasm_set_audio_chunk_handler(EdgeTxWasmHost* host, EdgetxAudioChunkFn handler);
+bool edgetx_wasm_send_telemetry(EdgeTxWasmHost* host, uint8_t module, uint8_t protocol,
+                                const uint8_t* data, uint32_t len);

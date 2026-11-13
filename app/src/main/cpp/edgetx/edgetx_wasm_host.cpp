@@ -57,6 +57,7 @@ struct EdgeTxWasmHost {
     std::vector<const char*> wasi_map_list;
     std::string fatfs_sd_guest = "/";
     std::string fatfs_settings_guest = "/";
+    wasm_function_inst_t fn_send_telemetry = nullptr;
 };
 
 static EdgeTxWasmHost* g_notify_host = nullptr;
@@ -155,6 +156,7 @@ static bool lookup(EdgeTxWasmHost* host) {
     host->fn_create_defaults = look("simuCreateDefaults");
     host->fn_boot_complete = look("simuIsBootComplete");
     host->fn_lcd_changed = look("simuLcdChanged");
+    host->fn_send_telemetry = look("simuSendTelemetry");
     return host->fn_init && host->fn_start && host->fn_stop && host->fn_lcd_copy && host->fn_malloc && host->fn_free;
 }
 
@@ -566,6 +568,35 @@ void edgetx_wasm_set_audio_chunk_handler(EdgeTxWasmHost* host, EdgetxAudioChunkF
     }
     std::lock_guard<std::mutex> lock(host->mutex);
     host->audio_chunk = std::move(handler);
+}
+
+bool edgetx_wasm_send_telemetry(EdgeTxWasmHost* host, uint8_t module, uint8_t protocol,
+                                const uint8_t* data, uint32_t len) {
+    if (!host || !host->running || !host->fn_send_telemetry || !host->exec_env || !data || len == 0) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(host->mutex);
+    const uint32_t ptr = wasm_alloc(host, len);
+    if (!ptr) {
+        return false;
+    }
+    void* native = wasm_runtime_addr_app_to_native(host->module_inst, ptr);
+    if (!native) {
+        wasm_free(host, ptr);
+        return false;
+    }
+    std::memcpy(native, data, len);
+    uint32_t argv[4] = {module, protocol, ptr, len};
+    const bool ok = wasm_runtime_call_wasm(host->exec_env, host->fn_send_telemetry, 4, argv);
+    wasm_free(host, ptr);
+    if (!ok) {
+        const char* ex = wasm_runtime_get_exception(host->module_inst);
+        if (ex) {
+            host->last_error = ex;
+        }
+        wasm_runtime_clear_exception(host->module_inst);
+    }
+    return ok;
 }
 
 uint8_t edgetx_wasm_copy_outputs(EdgeTxWasmHost* host, int16_t* buf, uint8_t max_count) {

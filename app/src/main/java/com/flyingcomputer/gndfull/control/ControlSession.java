@@ -229,6 +229,19 @@ public final class ControlSession implements AutoCloseable {
                 });
     }
 
+    /** Injects a CRSF telemetry frame into the wasm simulator (external module). */
+    public void injectCrossfireTelemetry(byte[] frame) {
+        if (frame == null || frame.length == 0 || !radioPowered) {
+            return;
+        }
+        loop.execute(
+                () -> {
+                    if (adapter instanceof WasmEdgeTxAdapter wasm) {
+                        wasm.sendCrossfireTelemetry(frame);
+                    }
+                });
+    }
+
     private void publishNeutral() {
         loop.execute(
                 () -> {

@@ -18,6 +18,7 @@ public final class MspV2Test {
         assertNotNull(decoded);
         assertEquals(MspV2.TO_ROVER, decoded.direction());
         assertEquals(RoverRcFrame.FUNCTION, decoded.function());
-        assertEquals(15, decoded.payload().length);
+        assertEquals(RoverRcFrame.PAYLOAD_BYTES, decoded.payload().length);
+        assertEquals(17, RoverRcFrame.PAYLOAD_BYTES);
     }
 }
