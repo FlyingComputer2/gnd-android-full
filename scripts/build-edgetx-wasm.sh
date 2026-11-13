@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build TX16S EdgeTX wasm (requires wasi-sdk; see EdgeTX tools/build-wasm-modules.sh).
 set -euo pipefail
+PATCH_DIR="$(cd "$(dirname "$0")" && pwd)/edgetx-patches"
 EDGETX_SRC="${EDGETX_SRC:-/home/ubuntu/development/_deps/edgetx-src}"
 OUT_DIR="${OUT_DIR:-$(cd "$(dirname "$0")/.." && pwd)/app/src/main/assets/edgetx}"
 VENV="${EDGETX_VENV:-/home/ubuntu/development/_deps/edgetx-venv}"
@@ -15,7 +16,6 @@ export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"
 mkdir -p "$OUT_DIR"
 cd "$EDGETX_SRC"
 # gnd patches on the EdgeTX simulator (external module S.Port bridge, ...).
-PATCH_DIR="$(cd "$(dirname "$0")" && pwd)/edgetx-patches"
 for p in "$PATCH_DIR"/*.patch; do
   [[ -e "$p" ]] || continue
   if git apply --reverse --check "$p" 2>/dev/null; then

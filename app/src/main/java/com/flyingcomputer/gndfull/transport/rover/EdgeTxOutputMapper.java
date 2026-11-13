@@ -9,8 +9,10 @@ import com.flyingcomputer.gndfull.crsf.CrsfRcChannels;
  * CH1, CH2  unused
  * CH3       throttle
  * CH4       servo 1 (rover CH1): steering
- * CH5       arm (EdgeTX CRSF arming mode CH5: >= 1500 us; Switch mode: status byte)
- * CH6       mode: < 1500 us manual steering (rover mode 0), >= 1500 us rate steering (mode 1)
+ * CH5       arm (EdgeTX CRSF arming mode CH5: >= 1750 us, see CrsfRcChannels.CH5_ARM_US;
+ *           Switch mode: status byte)
+ * CH6       mode: <= 1250 us manual steering (rover mode 0), >= 1750 us rate steering (mode 1),
+ *           in between (unmixed = 1500 us) the rover's own `mode` parameter
  * CH7       servo 2 (rover CH2, aux)
  * CH8       servo 3 (rover CH3, aux2)
  * </pre>
@@ -35,7 +37,8 @@ public final class EdgeTxOutputMapper {
      */
     public static RoverRcFrame map(int seq, long timeUsLow32, CrsfRcChannels ch, boolean allowArm) {
         int flags = allowArm && ch.armed() ? RoverRcFrame.FLAG_ARM : 0;
-        int mode = ch.channel(CH_MODE) >= 1500 ? MODE_RATE : MODE_MANUAL;
+        int ch6 = ch.channel(CH_MODE);
+        int mode = ch6 <= 1250 ? MODE_MANUAL : ch6 >= 1750 ? MODE_RATE : RoverRcFrame.MODE_NONE;
         return new RoverRcFrame(
                 seq,
                 timeUsLow32,
