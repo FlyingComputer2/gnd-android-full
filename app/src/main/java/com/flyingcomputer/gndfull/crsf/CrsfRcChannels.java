@@ -5,6 +5,11 @@ public final class CrsfRcChannels {
     /** EdgeTX status byte bit 1: arming mode is CH5 (else Switch, armed state in bit 0). */
     public static final int STATUS_ARMING_MODE_CH5 = 0x02;
     public static final int STATUS_SWITCH_ARMED = 0x01;
+    /**
+     * CH5 arm threshold. Higher than the 1500 us centre on purpose: a model with nothing mixed
+     * on CH5 outputs exactly 1500 us and must not arm.
+     */
+    public static final int CH5_ARM_US = 1750;
 
     public final int[] us;
     /** EdgeTX extra status byte, or -1 when the frame had none (22-byte payload). */
@@ -24,14 +29,15 @@ public final class CrsfRcChannels {
     }
 
     /**
-     * Arm request as EdgeTX's CRSF arming mode defines it: CH5 at or above 1500 us in CH5 mode, or
-     * the status byte's armed bit in Switch mode. Frames without a status byte use CH5.
+     * Arm request as EdgeTX's CRSF arming mode defines it: CH5 high (at or above {@link
+     * #CH5_ARM_US}) in CH5 mode, or the status byte's armed bit in Switch mode. Frames without a
+     * status byte use CH5.
      */
     public boolean armed() {
         if (status >= 0 && (status & STATUS_ARMING_MODE_CH5) == 0) {
             return (status & STATUS_SWITCH_ARMED) != 0;
         }
-        return channel(5) >= 1500;
+        return channel(5) >= CH5_ARM_US;
     }
 
     /** CRSF 11-bit value to microseconds (172..1811 -> 988..2012, 992 = 1500). */
