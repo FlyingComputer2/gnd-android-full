@@ -198,6 +198,14 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
     }
 
     @Override
+    public void rotaryEncoder(int steps) {
+        if (!running || steps == 0) {
+            return;
+        }
+        nativeRotaryEncoder(handle, steps);
+    }
+
+    @Override
     public void trimDown(int trimIndex) {
         if (!running) {
             return;
@@ -332,6 +340,8 @@ public final class WasmEdgeTxAdapter implements EdgeTxAdapter, EdgeTxTouchSink {
     private native void nativeSetSwitch(long handle, int index, int state);
 
     private native void nativeSetKey(long handle, int key, boolean down);
+
+    private native void nativeRotaryEncoder(long handle, int steps);
 
     private native void nativeSetTrim(long handle, int trim, boolean down);
 

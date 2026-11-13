@@ -11,5 +11,8 @@ public final class Tx16KeyMapTest {
         assertEquals(Tx16KeyMap.KEY_ENTER, Tx16KeyMap.toFirmware(EdgeTxKey.ENTER));
         assertEquals(Tx16KeyMap.KEY_TELE, Tx16KeyMap.toFirmware(EdgeTxKey.TELE));
         assertEquals(Tx16KeyMap.KEY_PAGEUP, Tx16KeyMap.toFirmware(EdgeTxKey.PAGE_UP));
+        assertEquals(4, Tx16KeyMap.toFirmware(EdgeTxKey.PAGE_DOWN));
+        assertEquals(11, Tx16KeyMap.toFirmware(EdgeTxKey.MDL));
+        assertEquals(13, Tx16KeyMap.toFirmware(EdgeTxKey.SYS));
     }
 }

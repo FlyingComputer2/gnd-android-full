@@ -2,8 +2,8 @@ package com.flyingcomputer.gndfull.ui;
 
 import android.view.MotionEvent;
 import android.view.View;
-import android.widget.Button;
 import android.widget.LinearLayout;
+import com.flyingcomputer.gndfull.R;
 import com.flyingcomputer.gndfull.control.ControlSession;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxInputSnapshot;
@@ -74,44 +74,94 @@ public final class EdgeTxUiWire {
                 });
     }
 
-    public Button createKeyButton(android.content.Context context, EdgeTxKey edgeKey, String label) {
-        float density = context.getResources().getDisplayMetrics().density;
-        int h = Math.round(density * 36f);
-        int w = Math.round(density * 52f);
-        Button key = new Button(context);
-        key.setText(label);
-        key.setAllCaps(false);
-        key.setTextSize(12f);
-        key.setMinHeight(h);
-        key.setMinWidth(w);
-        key.setPadding(4, 0, 4, 0);
-        key.setOnTouchListener(
+    /**
+     * The TX16S keys under the LCD, one row, equal width and height:
+     * SYS, RTN, PAGE up, PAGE down, TELE, roller up, roller click (ENTER), roller down, MDL.
+     */
+    public void wireNavKeys(LinearLayout nav, int heightPx) {
+        addKey(nav, heightPx, R.drawable.ic_key_sys, "SYS", EdgeTxKey.SYS);
+        addKey(nav, heightPx, R.drawable.ic_key_rtn, "RTN", EdgeTxKey.RTN);
+        addKey(nav, heightPx, R.drawable.ic_key_pgup, "PAGE up", EdgeTxKey.PAGE_UP);
+        addKey(nav, heightPx, R.drawable.ic_key_pgdn, "PAGE down", EdgeTxKey.PAGE_DOWN);
+        addKey(nav, heightPx, R.drawable.ic_key_tele, "TELE", EdgeTxKey.TELE);
+        addRoller(nav, heightPx, R.drawable.ic_key_roller_up, "Roller up", -1);
+        addKey(nav, heightPx, R.drawable.ic_key_roller_click, "Roller click", EdgeTxKey.ENTER);
+        addRoller(nav, heightPx, R.drawable.ic_key_roller_down, "Roller down", 1);
+        addKey(nav, heightPx, R.drawable.ic_key_mdl, "MDL", EdgeTxKey.MDL);
+    }
+
+    private static android.widget.ImageButton iconButton(
+            LinearLayout nav, int heightPx, int icon, String label) {
+        android.content.Context ctx = nav.getContext();
+        float density = ctx.getResources().getDisplayMetrics().density;
+        android.widget.ImageButton b = new android.widget.ImageButton(ctx);
+        b.setImageResource(icon);
+        b.setContentDescription(label);
+        b.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        int pad = Math.round(density * 6f);
+        b.setPadding(pad, pad, pad, pad);
+        b.setColorFilter(0xff1c2b33);
+        b.setMinimumWidth(0);
+        b.setMinimumHeight(0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, heightPx, 1f);
+        int gap = Math.round(density * 2f);
+        lp.setMargins(gap, 0, gap, 0);
+        nav.addView(b, lp);
+        return b;
+    }
+
+    private void addKey(LinearLayout nav, int heightPx, int icon, String label, EdgeTxKey key) {
+        android.widget.ImageButton b = iconButton(nav, heightPx, icon, label);
+        b.setOnTouchListener(
                 (v, event) -> {
                     if (!control.radioPowered()) {
                         return true;
                     }
                     switch (event.getActionMasked()) {
                         case MotionEvent.ACTION_DOWN:
-                            control.keyEvent(edgeKey, true);
+                            v.setPressed(true);
+                            control.keyEvent(key, true);
                             return true;
                         case MotionEvent.ACTION_UP:
                         case MotionEvent.ACTION_CANCEL:
-                            control.keyEvent(edgeKey, false);
+                            v.setPressed(false);
+                            control.keyEvent(key, false);
                             return true;
                         default:
                             return false;
                     }
                 });
-        return key;
     }
 
-    public void wireNavRow(LinearLayout nav, EdgeTxKey[] keys, String[] labels) {
-        float density = nav.getResources().getDisplayMetrics().density;
-        int h = Math.round(density * 36f);
-        for (int i = 0; i < labels.length; i++) {
-            Button key = createKeyButton(nav.getContext(), keys[i], labels[i]);
-            nav.addView(key, new LinearLayout.LayoutParams(0, h, 1f));
-        }
+    /** One roller step on press, then repeats while held. */
+    private void addRoller(LinearLayout nav, int heightPx, int icon, String label, int step) {
+        android.widget.ImageButton b = iconButton(nav, heightPx, icon, label);
+        final Runnable[] repeat = new Runnable[1];
+        repeat[0] =
+                () -> {
+                    control.rotaryEvent(step);
+                    b.postDelayed(repeat[0], 90);
+                };
+        b.setOnTouchListener(
+                (v, event) -> {
+                    if (!control.radioPowered()) {
+                        return true;
+                    }
+                    switch (event.getActionMasked()) {
+                        case MotionEvent.ACTION_DOWN:
+                            v.setPressed(true);
+                            control.rotaryEvent(step);
+                            v.postDelayed(repeat[0], 350);
+                            return true;
+                        case MotionEvent.ACTION_UP:
+                        case MotionEvent.ACTION_CANCEL:
+                            v.setPressed(false);
+                            v.removeCallbacks(repeat[0]);
+                            return true;
+                        default:
+                            return false;
+                    }
+                });
     }
 
     public void wireTrim(TrimRockerView rocker) {

@@ -205,6 +205,14 @@ public final class ControlSession implements AutoCloseable {
                 });
     }
 
+    public void rotaryEvent(int steps) {
+        loop.execute(
+                () -> {
+                    adapter.rotaryEncoder(steps);
+                    refreshOutputs();
+                });
+    }
+
     public void trimEvent(int trimIndex, boolean down) {
         loop.execute(
                 () -> {

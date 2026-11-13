@@ -163,6 +163,12 @@ Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeSetKey(
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeRotaryEncoder(
+    JNIEnv*, jobject, jlong handle, jint steps) {
+    edgetx_wasm_rotary(ptr(handle), static_cast<int32_t>(steps));
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_flyingcomputer_gndfull_edgetx_WasmEdgeTxAdapter_nativeSetTrim(
     JNIEnv*, jobject, jlong handle, jint trim, jboolean down) {
     edgetx_wasm_set_trim(ptr(handle), static_cast<uint8_t>(trim), down == JNI_TRUE);

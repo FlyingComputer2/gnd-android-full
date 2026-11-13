@@ -30,7 +30,6 @@ import com.flyingcomputer.gndfull.control.ControlSession;
 import com.flyingcomputer.gndfull.control.DrivingMode;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapterFactory;
-import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
 import com.flyingcomputer.gndfull.edgetx.Tx16InputMap;
 import com.flyingcomputer.gndfull.transport.UsbGroundSession;
 import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
@@ -280,12 +279,12 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         lcdNav.setOrientation(LinearLayout.HORIZONTAL);
         lcdNav.setPadding(padH, padV, padH, padV);
         lcdNav.setBackgroundColor(0xffe7edf0);
-        edgeTxUi.wireNavRow(
-                lcdNav, new EdgeTxKey[] {EdgeTxKey.RTN, EdgeTxKey.PAGE_UP}, new String[] {"RTN", "PAGE"});
+        int navKeyH = Math.round(density * 40f);
+        edgeTxUi.wireNavKeys(lcdNav, navKeyH);
         lcdPane.addView(
                 lcdNav,
                 new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, Math.round(density * 36f)));
+                        ViewGroup.LayoutParams.MATCH_PARENT, navKeyH + padV * 2));
         root.addView(
                 lcdPane,
                 new LinearLayout.LayoutParams(
