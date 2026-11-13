@@ -98,7 +98,8 @@ public final class RoverControlBridge implements AutoCloseable {
         }
         // EdgeTX's CRSF rate in the simulator is ~18 Hz: repeat the latest fresh frame so the
         // rover still gets 50 Hz (each frame carries the full state).
-        if (now - lastSendNanos >= TimeUnit.MILLISECONDS.toNanos(PERIOD_MS)) {
+        // 15 ms, not 20: watchdog ticks land a little early and would skip every other repeat.
+        if (now - lastSendNanos >= TimeUnit.MILLISECONDS.toNanos(PERIOD_MS - 5)) {
             send();
         }
     }
