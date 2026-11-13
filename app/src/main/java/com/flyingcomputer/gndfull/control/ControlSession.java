@@ -152,6 +152,16 @@ public final class ControlSession implements AutoCloseable {
         state = DrivingState.ARMED;
     }
 
+    /**
+     * Leaves the USB-loss FAILSAFE once the arm switch is seen off, so a reconnect never re-arms
+     * on a switch left high. The rover itself also needs neutral throttle to arm.
+     */
+    public void clearFailsafeOnDisarmedSwitch() {
+        if (state == DrivingState.FAILSAFE && !menuBlocksDriving && radioPowered) {
+            state = DrivingState.READY;
+        }
+    }
+
     public void disarm() {
         if (state == DrivingState.ARMED) {
             state = DrivingState.READY;

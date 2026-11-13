@@ -88,6 +88,9 @@ public final class RoverControlBridge implements AutoCloseable {
             return;
         }
         sent++;
+        if (!ch.armed()) {
+            control.clearFailsafeOnDisarmedSwitch();
+        }
         DrivingState st = control.state();
         boolean allowArm = st == DrivingState.READY || st == DrivingState.ARMED;
         int seq = sequence.incrementAndGet() & 0xFFFF;
