@@ -26,6 +26,7 @@ public final class RoverControlBridge implements AutoCloseable {
 
     private final ControlSession control;
     private final RcUsbHandler rcUsb;
+    private final SynchClient clock;
     private final ScheduledExecutorService timer =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "rc-publisher");
@@ -39,9 +40,10 @@ public final class RoverControlBridge implements AutoCloseable {
     private long skippedStale;
     private long lastLogNanos;
 
-    public RoverControlBridge(ControlSession control, RcUsbHandler rcUsb) {
+    public RoverControlBridge(ControlSession control, RcUsbHandler rcUsb, SynchClient clock) {
         this.control = control;
         this.rcUsb = rcUsb;
+        this.clock = clock;
         // Ticks from creation so the diagnostics line shows even if channel 2 never opens.
         tick = timer.scheduleAtFixedRate(this::publish, 0, PERIOD_MS, TimeUnit.MILLISECONDS);
     }
@@ -76,7 +78,8 @@ public final class RoverControlBridge implements AutoCloseable {
                                             java.util.Arrays.copyOf(last.us, 8)))
                             + " status=" + (last == null ? -1 : last.status)
                             + " state=" + control.state()
-                            + " " + control.crsfStats());
+                            + " " + control.crsfStats()
+                            + " " + clock.stats());
         }
         if (!rcOpen) {
             return;
@@ -94,7 +97,9 @@ public final class RoverControlBridge implements AutoCloseable {
         DrivingState st = control.state();
         boolean allowArm = st == DrivingState.READY || st == DrivingState.ARMED;
         int seq = sequence.incrementAndGet() & 0xFFFF;
-        long tUs = System.currentTimeMillis() * 1000L;
+        // Ground clock (krono over USB), the one the rover follows, so the rover's rc_lat_ms is
+        // the real phone-to-rover time; the phone's own wall clock was ~100 ms off.
+        long tUs = clock.groundOrLocalNowUs();
         RoverRcFrame rc = EdgeTxOutputMapper.map(seq, tUs, ch, allowArm);
         if ((rc.flags & RoverRcFrame.FLAG_ARM) != 0) {
             control.requestArm();
