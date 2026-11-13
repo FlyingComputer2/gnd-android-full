@@ -38,6 +38,9 @@ public final class ControlSession implements AutoCloseable {
     /** EdgeTX external module (CRSF) output; owner thread only. */
     private final CrsfStreamParser crsfOut = new CrsfStreamParser();
     private volatile CrsfRcChannels lastCrsf;
+    private volatile long extTxBytes;
+    private volatile long extRxPushes;
+    private volatile long extRxRejected;
 
     public ControlSession(EdgeTxAdapter adapter) {
         this.adapter = adapter;
@@ -251,13 +254,28 @@ public final class ControlSession implements AutoCloseable {
         loop.execute(
                 () -> {
                     if (adapter instanceof WasmEdgeTxAdapter wasm) {
-                        wasm.pushExternalModuleRx(frames);
+                        if (wasm.pushExternalModuleRx(frames)) {
+                            extRxPushes++;
+                        } else {
+                            extRxRejected++;
+                        }
                     }
                 });
     }
 
+    /** One line for logcat: external module bytes, CRSF frames and telemetry pushes. */
+    public String crsfStats() {
+        return "ext_tx_bytes=" + extTxBytes
+                + " crsf_rc=" + crsfOut.rcFrames()
+                + " crsf_crc_err=" + crsfOut.crcErrors()
+                + " ext_rx_push=" + extRxPushes
+                + " ext_rx_rejected=" + extRxRejected;
+    }
+
     private void drainExternalModule(WasmEdgeTxAdapter wasm) {
-        CrsfRcChannels rc = crsfOut.feed(wasm.readExternalModuleTx(), System.nanoTime());
+        byte[] out = wasm.readExternalModuleTx();
+        extTxBytes += out.length;
+        CrsfRcChannels rc = crsfOut.feed(out, System.nanoTime());
         if (rc != null) {
             lastCrsf = rc;
         }
