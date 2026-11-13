@@ -14,8 +14,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * rover_sample RC publisher over USB channel 2: one frame per CRSF frame EdgeTX sends to its
- * external module (~50 Hz). With External RF off (no CRSF) nothing is sent and the rover goes to
+ * rover_sample RC publisher over USB channel 2: a frame as soon as EdgeTX sends a CRSF frame to
+ * its external module, and the latest one repeated so the rover gets at least 50 Hz. With External RF off (no CRSF) nothing is sent and the rover goes to
  * failsafe.
  */
 public final class RoverControlBridge implements AutoCloseable {
@@ -38,6 +38,7 @@ public final class RoverControlBridge implements AutoCloseable {
     private volatile boolean rcOpen;
     private volatile long sent;
     private volatile long skippedBlocked;
+    private long lastSendNanos; // rc-publisher thread only
     private long lastLogNanos;
 
     public RoverControlBridge(ControlSession control, RcUsbHandler rcUsb, SynchClient clock) {
@@ -93,6 +94,12 @@ public final class RoverControlBridge implements AutoCloseable {
         CrsfRcChannels ch = control.lastCrsf();
         if (ch == null || now - ch.receivedNanos > STALE_NANOS) {
             control.disarm();
+            return;
+        }
+        // EdgeTX's CRSF rate in the simulator is ~18 Hz: repeat the latest fresh frame so the
+        // rover still gets 50 Hz (each frame carries the full state).
+        if (now - lastSendNanos >= TimeUnit.MILLISECONDS.toNanos(PERIOD_MS)) {
+            send();
         }
     }
 
@@ -130,6 +137,7 @@ public final class RoverControlBridge implements AutoCloseable {
             control.disarm();
         }
         byte[] wire = MspV2.encode(MspV2.TO_ROVER, RoverRcFrame.FUNCTION, rc.pack());
+        lastSendNanos = System.nanoTime();
         if (rcUsb.sendMsp(wire)) {
             sent++;
         }
