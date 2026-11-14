@@ -8,6 +8,7 @@ import android.os.Looper;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
@@ -103,8 +104,9 @@ public final class CliView extends LinearLayout {
         input.setTextSize(13f);
         input.setTextColor(FG);
         input.setHintTextColor(0xff607080);
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-                | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+        // Plain text: the keyboard shows its typing suggestions. Set explicitly so
+        // AutoCompleteTextView's FLAG_AUTO_COMPLETE does not hide them.
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
         input.setImeOptions(EditorInfo.IME_ACTION_SEND | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
         input.setOnEditorActionListener((v, actionId, event) -> {
             boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
@@ -132,7 +134,16 @@ public final class CliView extends LinearLayout {
 
     private Pane buildPane(Context context, int index) {
         ConsoleTarget target = targets[index];
-        LinearLayout box = new LinearLayout(context);
+        // Any touch in the column focuses it, whatever child is under the finger.
+        LinearLayout box = new LinearLayout(context) {
+            @Override
+            public boolean onInterceptTouchEvent(MotionEvent ev) {
+                if (ev.getActionMasked() == MotionEvent.ACTION_DOWN && focus != index) {
+                    setFocus(index);
+                }
+                return false;
+            }
+        };
         box.setOrientation(VERTICAL);
         int m = dp(2);
         box.setPadding(m, m, m, m);
@@ -144,6 +155,8 @@ public final class CliView extends LinearLayout {
         box.addView(title, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         ScrollView scroll = new ScrollView(context);
+        // The text fills the column, so long-press-to-clear works on empty space too.
+        scroll.setFillViewport(true);
         TextView text = new TextView(context);
         text.setTypeface(Typeface.MONOSPACE);
         text.setTextSize(9f);
@@ -153,7 +166,6 @@ public final class CliView extends LinearLayout {
         box.addView(scroll, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         Pane pane = new Pane(target, box, title, scroll, text);
-        View.OnClickListener focusIt = v -> setFocus(index);
         View.OnLongClickListener clearIt = v -> {
             pane.buffer.clear();
             pane.text.setText("");
@@ -161,7 +173,6 @@ public final class CliView extends LinearLayout {
             return true;
         };
         for (View v : new View[] {box, title, text}) {
-            v.setOnClickListener(focusIt);
             v.setOnLongClickListener(clearIt);
         }
         return pane;
