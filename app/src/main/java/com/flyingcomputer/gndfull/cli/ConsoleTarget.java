@@ -3,9 +3,9 @@ package com.flyingcomputer.gndfull.cli;
 import java.util.List;
 
 /**
- * One text console reached over UDP on the ground P4 (one request per datagram,
- * replies to the sender). The rover's consoles are relayed by the ground, so all
- * three targets share the ground's address and differ by port.
+ * One text console on the ground P4, reached over the ground USB link (channel 4,
+ * cli-v1: the ground sends each line as one datagram to its own 127.0.0.1:port).
+ * The rover's consoles are relayed by the ground, so targets differ by port only.
  */
 public enum ConsoleTarget {
     // Rover vstreamer m-plane, ground relay upstream 6.
@@ -14,8 +14,6 @@ public enum ConsoleTarget {
     ROV_L3("rov l3", 2410, FastKeys.L3, Completions.L3),
     // Ground winject-l3 console (cfg.console_in).
     GND_L3("gnd l3", 2400, FastKeys.L3, Completions.L3);
-
-    public static final String DEFAULT_HOST = "192.168.253.19";
 
     public final String label;
     public final int port;

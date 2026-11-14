@@ -20,6 +20,7 @@ import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import com.flyingcomputer.gndfull.transport.CliUsbHandler;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -27,7 +28,9 @@ import java.util.List;
  * CLI mode: three terminal columns (rover vstreamer, rover l3, ground l3), tap a
  * column to focus it (it widens), one input line for the focused console and a
  * 3-column fast-type grid of that console's common commands. Long-press a column
- * to clear it. UI-thread only, except the console listeners, which post here.
+ * to clear it. Lines go over the ground USB link (channel 4, {@link CliUsbHandler}); replies
+ * are routed to the pane whose console port they came from. UI-thread only, except the link's
+ * listener, which posts here.
  */
 public final class CliView extends LinearLayout {
     private static final int MAX_LINES = 400;
@@ -46,7 +49,7 @@ public final class CliView extends LinearLayout {
     private final GridLayout fastGrid;
     private final float density;
     private volatile int focus; // read by the completion filter thread
-    private String host = ConsoleTarget.DEFAULT_HOST;
+    private CliUsbHandler link;
 
     private final class Pane {
         final ConsoleTarget target;
@@ -56,7 +59,6 @@ public final class CliView extends LinearLayout {
         final TextView text;
         final TextView title;
         final LinearLayout box;
-        UdpConsole console;
         final Runnable timeout;
 
         Pane(ConsoleTarget target, LinearLayout box, TextView title, ScrollView scroll, TextView text) {
@@ -190,19 +192,21 @@ public final class CliView extends LinearLayout {
         return b;
     }
 
-    /** Console host (the ground P4); the rover's consoles are relayed by it. */
-    public void setHost(String host) {
-        this.host = host;
-        for (Pane p : panes) {
-            if (p.console != null) {
-                p.console.setHost(host);
-            }
-            p.title.setText(p.target.label + " :" + p.target.port);
-        }
+    /** The ground USB console link; replies are routed by console port. */
+    public void setLink(CliUsbHandler link) {
+        this.link = link;
+        link.setListener((port, text) -> ui.post(() -> onReply(port, text)));
     }
 
-    public String host() {
-        return host;
+    private void onReply(int port, String text) {
+        for (Pane p : panes) {
+            if (p.target.port == port) {
+                ui.removeCallbacks(p.timeout);
+                p.print(text);
+                return;
+            }
+        }
+        panes[focus].print(":" + port + " " + text);
     }
 
     private void setFocus(int index) {
@@ -337,39 +341,27 @@ public final class CliView extends LinearLayout {
     private void send(String line) {
         Pane p = panes[focus];
         p.history.add(line);
-        if (p.console == null) {
-            p.console = new UdpConsole(p.target, host, new UdpConsole.Listener() {
-                @Override
-                public void onReply(String text) {
-                    ui.post(() -> {
-                        ui.removeCallbacks(p.timeout);
-                        p.print(text);
-                    });
-                }
-
-                @Override
-                public void onError(String message) {
-                    ui.post(() -> {
-                        ui.removeCallbacks(p.timeout);
-                        p.print("! " + message);
-                    });
-                }
-            });
-        }
         p.print("> " + line);
+        CliUsbHandler l = link;
+        if (l == null || !l.isOpen()) {
+            p.print("! USB CLI not open: connect the ground (needs gnd-esp32p4 with USB channel 4)");
+            return;
+        }
+        if (!l.send(p.target.port, line)) {
+            p.print("! USB CLI busy, not sent");
+            return;
+        }
         ui.removeCallbacks(p.timeout);
         ui.postDelayed(p.timeout, REPLY_TIMEOUT_MS);
-        p.console.send(line);
     }
 
-    /** Closes the sockets; the next send reopens them. */
-    public void closeConsoles() {
+    /** Stops routing replies here (the link outlives this view's activity). */
+    public void detach() {
         for (Pane p : panes) {
             ui.removeCallbacks(p.timeout);
-            if (p.console != null) {
-                p.console.close();
-                p.console = null;
-            }
+        }
+        if (link != null) {
+            link.setListener(null);
         }
     }
 

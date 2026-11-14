@@ -37,7 +37,12 @@ public final class UsbProxy implements AutoCloseable {
         private final ArrayBlockingQueue<byte[]> outgoing=new ArrayBlockingQueue<>(8);
         private int mtu=1445, txCredits, txWindow, rxCredits, rxWindow, pendingCredit, sequence;
         private boolean open, readOnly;
-        private Channel(int id,Handler handler) { this.id=id; this.handler=handler; }
+        // Optional: connect() succeeds without it on the P4; open only if available().
+        private final boolean optional;
+        private volatile boolean available;
+        private Channel(int id,Handler handler,boolean optional) { this.id=id; this.handler=handler; this.optional=optional; }
+        /** The P4 lists this channel (known after connect()). */
+        public boolean available() { return available; }
         public boolean trySend(byte[] payload) {
             synchronized(state) {
                 if(!running || !open || readOnly || payload.length==0 || payload.length>mtu) return false;
@@ -77,11 +82,14 @@ public final class UsbProxy implements AutoCloseable {
     private Thread reader, writer;
     private int session, cursor, controlBurst;
     public UsbProxy(Listener listener) { this.listener=listener; }
-    public Channel registerHandler(int id,Handler handler) {
+    public Channel registerHandler(int id,Handler handler) { return register(id,handler,false); }
+    /** Like registerHandler, but connect() does not fail when the P4 lacks the channel. */
+    public Channel registerOptionalHandler(int id,Handler handler) { return register(id,handler,true); }
+    private Channel register(int id,Handler handler,boolean optional) {
         Wire.checkChannel(id);
         synchronized(state) {
             if(running || channels.size()>=16 || channels.containsKey(id)) throw new IllegalStateException("duplicate/full/frozen registry");
-            Channel c=new Channel(id,Objects.requireNonNull(handler)); channels.put(id,c); return c;
+            Channel c=new Channel(id,Objects.requireNonNull(handler),optional); channels.put(id,c); return c;
         }
     }
     public void connect(UsbManager manager,UsbDevice device) throws Exception {
@@ -113,7 +121,10 @@ public final class UsbProxy implements AutoCloseable {
                 for(int i=0;i<list.length();i++) available.add(list.getJSONObject(i).getInt("id"));
                 page=reply.isNull("next_offset")?-1:reply.getInt("next_offset");
             } while(page>=0);
-            for(int id:channels.keySet()) if(!available.contains(id)) throw new IOException("no P4 upstream for USB channel "+id);
+            for(Channel c:channels.values()) {
+                c.available=available.contains(c.id);
+                if(!c.available && !c.optional) throw new IOException("no P4 upstream for USB channel "+c.id);
+            }
         } catch(Exception e) { close(); throw e; }
     }
     private JSONObject request(JSONObject command,Completion completion) throws Exception {

@@ -20,7 +20,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.ArrayAdapter;
-import android.widget.EditText;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -28,7 +27,6 @@ import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
 import com.flyingcomputer.gndfull.cli.CliView;
-import com.flyingcomputer.gndfull.cli.ConsoleTarget;
 import com.flyingcomputer.gndfull.control.ControlSession;
 import com.flyingcomputer.gndfull.control.DrivingMode;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
@@ -51,8 +49,6 @@ import java.util.concurrent.RejectedExecutionException;
 public final class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final String TAG = "GndFull";
     private static final String USB_PERMISSION = "com.flyingcomputer.gndfull.USB_PERMISSION";
-    private static final String PREFS = "gndfull";
-    private static final String PREF_CLI_HOST = "cli_host";
 
     private final ExecutorService usbSetup = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -347,9 +343,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                         ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         cliView = new CliView(this);
-        cliView.setHost(
-                getSharedPreferences(PREFS, MODE_PRIVATE)
-                        .getString(PREF_CLI_HOST, ConsoleTarget.DEFAULT_HOST));
+        // Consoles over the ground USB link (channel 4), not IP.
+        cliView.setLink(usbSession.cliUsb());
         cliView.setVisibility(View.GONE);
         root.addView(
                 cliView,
@@ -433,41 +428,14 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 .setTitle("Connection & EdgeTX")
                 .setMessage(
                         "USB ch0 rtp-h264-v1 video, ch2 rc-v1 MSP (rover_sample 0x4201).\n"
-                                + "CLI consoles: UDP to "
-                                + cliView.host()
-                                + " (rov vs 5092, rov l3 2410, gnd l3 2400).\n"
+                                + "CLI: USB ch4 cli-v1 ("
+                                + (usbSession.cliUsb().isOpen() ? "open" : "not open")
+                                + "; rov vs 5092, rov l3 2410, gnd l3 2400 on the ground).\n"
                                 + "EdgeTX: "
                                 + control.adapter().status().detail())
                 .setNeutralButton("Connect USB", (d, w) -> discoverUsb())
-                .setNegativeButton("CLI host", (d, w) -> editCliHost())
                 .setPositiveButton("Close", null)
                 // Driving stays blocked while the CLI is shown.
-                .setOnDismissListener(d -> control.setMenuOpen(cliActive))
-                .show();
-    }
-
-    private void editCliHost() {
-        control.setMenuOpen(true);
-        EditText host = new EditText(this);
-        host.setSingleLine(true);
-        host.setText(cliView.host());
-        new AlertDialog.Builder(this)
-                .setTitle("CLI host (ground P4)")
-                .setView(host)
-                .setPositiveButton(
-                        "Save",
-                        (d, w) -> {
-                            String h = host.getText().toString().trim();
-                            if (h.isEmpty()) {
-                                h = ConsoleTarget.DEFAULT_HOST;
-                            }
-                            getSharedPreferences(PREFS, MODE_PRIVATE)
-                                    .edit()
-                                    .putString(PREF_CLI_HOST, h)
-                                    .apply();
-                            cliView.setHost(h);
-                        })
-                .setNegativeButton("Cancel", null)
                 .setOnDismissListener(d -> control.setMenuOpen(cliActive))
                 .show();
     }
@@ -602,7 +570,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         ui.removeCallbacks(osdRefresh);
         unregisterReceiver(usbEvents);
         if (cliView != null) {
-            cliView.closeConsoles();
+            cliView.detach();
         }
         surfaceReady = false;
         submit(this::disconnectUsb);

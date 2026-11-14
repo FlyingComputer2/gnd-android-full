@@ -16,8 +16,8 @@ android {
         applicationId 'com.flyingcomputer.gndfull'
         minSdk 26
         targetSdk 35
-        versionCode 29
-        versionName '0.1.29-cli'
+        versionCode 30
+        versionName '0.1.30-cli'
         ndk { abiFilters 'arm64-v8a' }
         externalNativeBuild {
             cmake {

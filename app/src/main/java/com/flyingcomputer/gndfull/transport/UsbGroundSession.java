@@ -10,7 +10,7 @@ import com.flyingcomputer.gndfull.crsf.RoverCrossfireTelemetry;
 import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
 import com.flyingcomputer.gndfull.video.VideoMetrics;
 
-/** One USB connection: video ch0 + RC ch2 + metrics. */
+/** One USB connection: video ch0 + RC ch2 + sync ch3 + CLI ch4 (optional) + metrics. */
 public final class UsbGroundSession implements AutoCloseable {
     public interface Listener {
         void onStatus(String message);
@@ -34,6 +34,8 @@ public final class UsbGroundSession implements AutoCloseable {
      */
     private SynchClient clock;
     private final RcUsbHandler rcUsb = new RcUsbHandler();
+    /** The ground's text consoles on USB channel 4; lives across connections. */
+    private final CliUsbHandler cliUsb = new CliUsbHandler();
     private RoverControlBridge bridge;
 
     public UsbGroundSession(ControlSession control, Listener listener, boolean enableRc) {
@@ -68,6 +70,8 @@ public final class UsbGroundSession implements AutoCloseable {
         UsbProxy.Channel videoChannel = proxy.registerHandler(0, video);
         clock = new SynchClient();
         UsbProxy.Channel syncChannel = proxy.registerHandler(SynchClient.CHANNEL, clock);
+        UsbProxy.Channel cliChannel =
+                proxy.registerOptionalHandler(CliUsbHandler.CHANNEL, cliUsb.sessionHandler());
         // Handlers keep their own bridge: closeInternals() clears the field before the proxy's
         // channel workers deliver onClose.
         final RoverControlBridge rcBridge =
@@ -77,6 +81,7 @@ public final class UsbGroundSession implements AutoCloseable {
             proxy.connect(manager, device);
             videoChannel.open(8);
             syncChannel.open(2);
+            openCli(cliChannel);
             control.onUsbConnected();
             if (listener != null) {
                 listener.onStatus("Video channel 0 open (EdgeTX-only mode)");
@@ -115,11 +120,25 @@ public final class UsbGroundSession implements AutoCloseable {
         videoChannel.open(8);
         rcChannel.open(8);
         syncChannel.open(2);
+        openCli(cliChannel);
         control.onUsbConnected();
         if (listener != null) {
             listener.onStatus("Video channel 0 open (rtp-h264-v1)");
             listener.onVideoMetrics(videoMetrics.snapshot());
         }
+    }
+
+    private void openCli(UsbProxy.Channel cliChannel) throws Exception {
+        if (cliChannel.available()) {
+            cliChannel.open(4);
+        } else if (listener != null) {
+            listener.onStatus("Ground has no USB CLI channel 4; update gnd-esp32p4");
+        }
+    }
+
+    /** The ground consoles over USB channel 4 (open while connected to a ground that has it). */
+    public CliUsbHandler cliUsb() {
+        return cliUsb;
     }
 
     public VideoMetrics videoMetrics() {
