@@ -2,7 +2,7 @@ package com.flyingcomputer.gndfull.control;
 
 public enum DrivingMode {
     RC("RC"),
-    CLI("CLI (TBA)"),
+    CLI("CLI"),
     PLN("PLN (TBA)");
 
     public final String label;
