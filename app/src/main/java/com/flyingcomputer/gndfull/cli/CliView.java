@@ -24,14 +24,13 @@ import java.util.List;
 
 /**
  * CLI mode: three terminal columns (rover vstreamer, rover l3, ground l3), tap a
- * column to focus it (it widens), one input line for the focused console and a
+ * column to focus it (blue border), one input line for the focused console and a
  * 3-column fast-type grid of that console's common commands. Long-press a column
  * to clear it. UI-thread only, except the console listeners, which post here.
  */
 public final class CliView extends LinearLayout {
     private static final int MAX_LINES = 400;
     private static final long REPLY_TIMEOUT_MS = 2000;
-    private static final float FOCUSED_WEIGHT = 1.8f;
     private static final int BG = 0xff10161a;
     private static final int FG = 0xffc8d6df;
     private static final int BORDER = 0xff2a3a44;
@@ -205,11 +204,6 @@ public final class CliView extends LinearLayout {
             p.box.setBackground(border);
             p.title.setTextColor(on ? BORDER_FOCUS : 0xff708090);
             p.title.setText(p.target.label + " :" + p.target.port);
-            LayoutParams lp = (LayoutParams) p.box.getLayoutParams();
-            if (lp != null) {
-                lp.weight = on ? FOCUSED_WEIGHT : 1f;
-                p.box.setLayoutParams(lp);
-            }
         }
         input.setHint(panes[index].target.label + "> ");
         buildFastKeys();
