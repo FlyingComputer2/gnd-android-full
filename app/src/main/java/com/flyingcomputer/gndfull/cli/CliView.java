@@ -16,7 +16,6 @@ import android.widget.Button;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 import android.widget.Filter;
-import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -26,9 +25,9 @@ import java.util.List;
 
 /**
  * CLI mode: three terminal columns (rover vstreamer, rover l3, ground l3), tap a
- * column to focus it (it widens), one input line for the focused console and a
- * 3-column fast-type grid of that console's common commands. Long-press a column
- * to clear it. Lines go over the ground USB link (channel 4, {@link CliUsbHandler}); replies
+ * column to focus it (it widens), and one input line for the focused console with
+ * word-by-word completion of all its commands ({@link Completions}). Long-press a
+ * column to clear it. Lines go over the ground USB link (channel 4, {@link CliUsbHandler}); replies
  * are routed to the pane whose console port they came from. UI-thread only, except the link's
  * listener, which posts here.
  */
@@ -44,9 +43,8 @@ public final class CliView extends LinearLayout {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ConsoleTarget[] targets = ConsoleTarget.values();
     private final Pane[] panes = new Pane[targets.length];
-    private static final int MAX_COMPLETIONS = 8;
+    private static final int MAX_COMPLETIONS = 40;
     private final AutoCompleteTextView input;
-    private final GridLayout fastGrid;
     private final float density;
     private volatile int focus; // read by the completion filter thread
     private CliUsbHandler link;
@@ -96,13 +94,19 @@ public final class CliView extends LinearLayout {
         inputRow.setOrientation(HORIZONTAL);
         inputRow.setGravity(Gravity.CENTER_VERTICAL);
         inputRow.setPadding(pad, pad, pad, pad);
-        input = new AutoCompleteTextView(context);
+        input = new AutoCompleteTextView(context) {
+            // Also suggest on an empty line (the first words).
+            @Override
+            public boolean enoughToFilter() {
+                return true;
+            }
+        };
         input.setSingleLine(true);
-        // Dropdown of prefix matches (history first, then the console's commands).
-        input.setThreshold(1);
+        // Dropdown: history lines first, then the next word of the console's commands.
         input.setAdapter(new CompletionAdapter(context));
+        // A picked word that needs more (ends in ' ' or '=') opens the next word's choices.
         input.setOnItemClickListener((parent, view, position, id) ->
-                input.setSelection(input.getText().length()));
+                input.post(() -> setLine(input.getText().toString(), true)));
         input.setTypeface(Typeface.MONOSPACE);
         input.setTextSize(13f);
         input.setTextColor(FG);
@@ -126,11 +130,6 @@ public final class CliView extends LinearLayout {
         inputRow.addView(smallButton(context, "↓", v -> recall(panes[focus].history.next())));
         inputRow.addView(smallButton(context, "⏎", v -> sendInput()));
         addView(inputRow, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        fastGrid = new GridLayout(context);
-        fastGrid.setColumnCount(3);
-        fastGrid.setPadding(pad, 0, pad, pad);
-        addView(fastGrid, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         setFocus(0);
     }
@@ -227,81 +226,54 @@ public final class CliView extends LinearLayout {
             }
         }
         input.setHint(panes[index].target.label + "> ");
-        buildFastKeys();
     }
 
-    private void buildFastKeys() {
-        fastGrid.removeAllViews();
-        int h = dp(34);
-        for (String key : panes[focus].target.fastKeys) {
-            Button b = new Button(getContext());
-            b.setAllCaps(false);
-            b.setText(key);
-            b.setTextSize(11f);
-            b.setTypeface(Typeface.MONOSPACE);
-            b.setSingleLine(true);
-            b.setPadding(dp(2), 0, dp(2), 0);
-            b.setMinHeight(0);
-            b.setMinimumHeight(h);
-            // Tap: complete commands go out at once; the rest wait for an argument.
-            b.setOnClickListener(v -> {
-                if (FastKeys.sendsImmediately(key)) {
-                    send(key);
-                } else {
-                    recall(FastKeys.insert(input.getText().toString(), key));
-                    input.requestFocus();
-                }
-            });
-            // Long press: always just insert, to edit before sending.
-            b.setOnLongClickListener(v -> {
-                recall(FastKeys.insert(input.getText().toString(), key));
-                input.requestFocus();
-                return true;
-            });
-            GridLayout.LayoutParams lp = new GridLayout.LayoutParams(
-                    GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED, 1f));
-            lp.width = 0;
-            lp.height = h;
-            fastGrid.addView(b, lp);
-        }
-    }
-
+    /** History recall: no dropdown. */
     private void recall(String line) {
         if (line == null) {
             return;
         }
-        // No dropdown for text set programmatically (history, fast keys).
-        input.setText(line, false);
+        setLine(line, false);
+    }
+
+    /**
+     * Sets the input line, cursor at the end. With {@code suggest}, a line that ends in ' ' or '='
+     * (a word that needs more) opens the next word's choices.
+     */
+    private void setLine(String line, boolean suggest) {
+        boolean next = suggest && (line.endsWith(" ") || line.endsWith("="));
+        input.setText(line, next);
         input.setSelection(line.length());
     }
 
-    /** Matches for {@code prefix} on the focused console (any thread). */
-    private List<String> matches(String prefix) {
+    /** Matches for {@code line} on the focused console (any thread). */
+    private List<Completions.Candidate> matches(String line) {
         Pane p = panes[focus];
-        return Completions.match(prefix, p.history.newestFirst(), p.target.completions, MAX_COMPLETIONS);
+        return Completions.match(line, p.history.newestFirst(), p.target.grammar, MAX_COMPLETIONS);
     }
 
-    /** Shell Tab: extend to the common prefix of all matches, else show them. */
+    /** Shell Tab: extend to the common prefix of the next words, else list them. */
     private void tabComplete() {
         String line = input.getText().toString();
-        String done = Completions.complete(line,
-                Completions.match(line, panes[focus].history.newestFirst(), panes[focus].target.completions,
-                        Integer.MAX_VALUE));
+        List<Completions.Candidate> words = panes[focus].target.grammar.candidates(line);
+        String done = Completions.complete(line, words);
         if (!done.equals(line)) {
-            recall(done);
-        } else if (input.getAdapter() != null) {
-            input.showDropDown();
+            setLine(done, true);
+        } else if (!words.isEmpty()) {
+            input.setText(line, true); // re-filter, which shows the dropdown
+            input.setSelection(line.length());
         }
         input.requestFocus();
     }
 
-    /** Adapter whose filter is Completions.match on the whole line. */
-    private final class CompletionAdapter extends ArrayAdapter<String> {
+    /** Adapter whose filter is Completions.match on the whole line; a pick inserts its line. */
+    private final class CompletionAdapter extends ArrayAdapter<Completions.Candidate> {
         private final Filter filter = new Filter() {
             @Override
             protected FilterResults performFiltering(CharSequence constraint) {
                 FilterResults r = new FilterResults();
-                List<String> m = constraint == null ? new ArrayList<>() : matches(constraint.toString());
+                List<Completions.Candidate> m =
+                        matches(constraint == null ? "" : constraint.toString());
                 r.values = m;
                 r.count = m.size();
                 return r;
@@ -312,9 +284,14 @@ public final class CliView extends LinearLayout {
             protected void publishResults(CharSequence constraint, FilterResults results) {
                 clear();
                 if (results.values != null) {
-                    addAll((List<String>) results.values);
+                    addAll((List<Completions.Candidate>) results.values);
                 }
                 notifyDataSetChanged();
+            }
+
+            @Override
+            public CharSequence convertResultToString(Object result) {
+                return result instanceof Completions.Candidate c ? c.insert() : String.valueOf(result);
             }
         };
 

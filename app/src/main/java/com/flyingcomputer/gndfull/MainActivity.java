@@ -449,6 +449,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         cliActive = on;
+        // Driving blocked, but disarmed hold frames keep the rover link and telemetry alive.
+        control.setLinkHold(on);
         control.setMenuOpen(on);
         for (View v : rcViews) {
             v.setVisibility(on ? View.GONE : View.VISIBLE);

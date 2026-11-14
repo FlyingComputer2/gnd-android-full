@@ -12,7 +12,7 @@ Android ground station with on-device EdgeTX UI, virtual gimbals/switches, and U
 | USB RGP4 v2 video channel 0 (`rtp-h264-v1`) | Ported from [gnd-android](https://github.com/FlyingComputer2/gnd-android) |
 | USB channel 2 `rc-v1` → rover_sample MSP `0x4201` @ 50 Hz | `RoverControlBridge` + `RcUsbHandler` |
 | Telemetry `0x4220` on OSD | `OsdPresenter` (USB measurement points) |
-| CLI mode: 3 consoles side by side (rov vstreamer 5092, rov l3 2410, gnd l3 2400 on the ground P4) over the ground USB link (channel 4 `cli-v1`, no IP needed), tap to focus, 3-column fast-type keys, keyboard suggestions + command completion (dropdown + ⇥ common prefix, per-console history) | `cli/CliView`, `transport/CliUsbHandler` — needs gnd-esp32p4 with USB channel 4 |
+| CLI mode: 3 consoles side by side (rov vstreamer 5092, rov l3 2410, gnd l3 2400 on the ground P4) over the ground USB link (channel 4 `cli-v1`, no IP needed), tap to focus, keyboard suggestions + word-by-word completion of every command, argument and value (dropdown + ⇥ common prefix, per-console history); RC keeps sending disarmed hold frames so telemetry stays up | `cli/CliView`, `transport/CliUsbHandler` — needs gnd-esp32p4 with USB channel 4 |
 | PLN mode | Marked TBA in UI |
 
 ## Build

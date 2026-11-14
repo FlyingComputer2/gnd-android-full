@@ -38,6 +38,7 @@ public final class RoverControlBridge implements AutoCloseable {
     private volatile boolean rcOpen;
     private volatile long sent;
     private volatile long skippedBlocked;
+    private volatile long held;
     private long lastSendNanos; // rc-publisher thread only
     private long lastLogNanos;
 
@@ -79,6 +80,7 @@ public final class RoverControlBridge implements AutoCloseable {
                     "rc_open=" + rcOpen
                             + " sent=" + sent
                             + " skipped_blocked=" + skippedBlocked
+                            + " held=" + held
                             + " crsf_age_ms="
                             + (last == null ? -1 : (now - last.receivedNanos) / 1_000_000)
                             + " ch1-8="
@@ -108,7 +110,8 @@ public final class RoverControlBridge implements AutoCloseable {
      * Sends one RC frame for the CRSF frame just drained (one per drain, ~50 Hz), so there is no
      * second timer between EdgeTX and the wire. While the app blocks driving (menu open, radio off,
      * USB failsafe) nothing is sent: the rover then holds steering centre and CH2/CH3 at their
-     * failsafe positions instead of following sticks moved during setup.
+     * failsafe positions instead of following sticks moved during setup. In CLI mode (link hold)
+     * disarmed hold frames go out instead, so the rover's link statistics stay live.
      */
     private void send() {
         if (!rcOpen) {
@@ -122,7 +125,8 @@ public final class RoverControlBridge implements AutoCloseable {
             control.clearFailsafeOnDisarmedSwitch();
         }
         DrivingState st = control.state();
-        if (st != DrivingState.READY && st != DrivingState.ARMED) {
+        boolean drive = st == DrivingState.READY || st == DrivingState.ARMED;
+        if (!drive && !control.linkHold()) {
             skippedBlocked++;
             control.disarm();
             return;
@@ -131,7 +135,14 @@ public final class RoverControlBridge implements AutoCloseable {
         // Ground clock (krono over USB), the one the rover follows, so the rover's rc_lat_ms is
         // the real phone-to-rover time; the phone's own wall clock was ~100 ms off.
         long tUs = clock.groundOrLocalNowUs();
-        RoverRcFrame rc = EdgeTxOutputMapper.map(seq, tUs, ch, true);
+        RoverRcFrame rc;
+        if (drive) {
+            rc = EdgeTxOutputMapper.map(seq, tUs, ch, true);
+        } else {
+            // CLI: keep the link (and its telemetry) alive, disarmed and centred.
+            rc = EdgeTxOutputMapper.hold(seq, tUs, ch);
+            held++;
+        }
         if ((rc.flags & RoverRcFrame.FLAG_ARM) != 0) {
             control.requestArm();
         } else {

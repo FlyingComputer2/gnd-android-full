@@ -53,6 +53,27 @@ public final class EdgeTxOutputMapperTest {
     }
 
     @Test
+    public void holdFrameIsDisarmedAndCentred() {
+        int[] p = pulses();
+        p[2] = 512; // throttle
+        p[3] = -1024; // steering
+        p[4] = 1024; // arm switch on
+        p[5] = 1024; // rate
+        p[6] = 1024; // servo 2
+        p[7] = -512; // servo 3
+        RoverRcFrame rc =
+                EdgeTxOutputMapper.hold(7, 42, viaCrsf(p, CrsfChannelsFrame.STATUS_CH5_ARMING));
+        assertEquals(7, rc.seq);
+        assertEquals(42, rc.timeUsLow32);
+        assertEquals(0, rc.flags);
+        assertEquals(0, rc.steer);
+        assertEquals(0, rc.thr);
+        assertEquals(EdgeTxOutputMapper.MODE_RATE, rc.mode);
+        assertEquals(1000, rc.aux);
+        assertEquals(-500, rc.aux2, 4);
+    }
+
+    @Test
     public void unmixedCh6KeepsRoverMode() {
         RoverRcFrame rc =
                 EdgeTxOutputMapper.map(

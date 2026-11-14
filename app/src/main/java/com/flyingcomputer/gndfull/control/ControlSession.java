@@ -34,6 +34,7 @@ public final class ControlSession implements AutoCloseable {
     private volatile DrivingState state = DrivingState.INACTIVE;
     private volatile int[] lastOutputs = new int[16];
     private volatile boolean menuBlocksDriving;
+    private volatile boolean linkHold;
     private volatile boolean radioPowered = true;
     private volatile ScheduledFuture<?> refresh;
     /** EdgeTX external module (CRSF) output; owner thread only. */
@@ -153,6 +154,19 @@ public final class ControlSession implements AutoCloseable {
             state = DrivingState.READY;
         }
         syncHardwareInput();
+    }
+
+    /**
+     * CLI mode: driving stays blocked ({@link #setMenuOpen}), but the RC link keeps sending
+     * disarmed hold frames (steering centre, throttle 0) so the rover's RC loss, and with it the
+     * link statistics EdgeTX shows as telemetry, stay live.
+     */
+    public void setLinkHold(boolean hold) {
+        linkHold = hold;
+    }
+
+    public boolean linkHold() {
+        return linkHold;
     }
 
     public void requestArm() {
