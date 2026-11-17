@@ -4,11 +4,13 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /**
- * rover_sample telemetry payload (func 0x4220): 42 bytes; older rovers send 39 (no vbus, rssi).
+ * rover_sample telemetry payload (func 0x4220): 58 bytes; older rovers send 42 (no link counters)
+ * or 39 (no vbus, rssi either).
  */
 public final class RoverTelemFrame {
     public static final int FUNCTION = 0x4220;
-    public static final int PAYLOAD_BYTES = 42;
+    public static final int PAYLOAD_BYTES = 58;
+    public static final int PAYLOAD_BYTES_V2 = 42;
     public static final int PAYLOAD_BYTES_V1 = 39;
 
     public final int seq;
@@ -31,6 +33,14 @@ public final class RoverTelemFrame {
     public final int vbusCentiVolts;
     /** dBm of the ground's frames at the rover radio; 0 = unknown. */
     public final int rssiDbm;
+    /**
+     * Ground → rover air link as the rover's L3 receives it (free-running u32, summed over all
+     * upstreams), sampled at {@link #linkMs} rover monotonic ms. All 0 = unknown (older rover).
+     */
+    public long linkMs;
+    public long linkRxBytes;
+    public long linkRxPackets;
+    public long linkRxLost;
 
     public RoverTelemFrame(
             int seq,
@@ -77,7 +87,9 @@ public final class RoverTelemFrame {
 
     public static RoverTelemFrame unpack(byte[] payload) {
         if (payload == null
-                || (payload.length != PAYLOAD_BYTES && payload.length != PAYLOAD_BYTES_V1)) {
+                || (payload.length != PAYLOAD_BYTES
+                        && payload.length != PAYLOAD_BYTES_V2
+                        && payload.length != PAYLOAD_BYTES_V1)) {
             return null;
         }
         ByteBuffer b = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
@@ -103,13 +115,21 @@ public final class RoverTelemFrame {
         b.get(); // flags
         int vbus = 0;
         int rssi = 0;
-        if (payload.length == PAYLOAD_BYTES) {
+        if (payload.length >= PAYLOAD_BYTES_V2) {
             vbus = b.getShort() & 0xFFFF;
             rssi = b.get();
         }
-        return new RoverTelemFrame(
-                seq, rcAgeMs, state, mode, steerOut, thrOut, rcLoss, rcLatMs, heading, roll, pitch,
-                iMotor, vbus, rssi);
+        RoverTelemFrame t =
+                new RoverTelemFrame(
+                        seq, rcAgeMs, state, mode, steerOut, thrOut, rcLoss, rcLatMs, heading, roll,
+                        pitch, iMotor, vbus, rssi);
+        if (payload.length == PAYLOAD_BYTES) {
+            t.linkMs = b.getInt() & 0xFFFF_FFFFL;
+            t.linkRxBytes = b.getInt() & 0xFFFF_FFFFL;
+            t.linkRxPackets = b.getInt() & 0xFFFF_FFFFL;
+            t.linkRxLost = b.getInt() & 0xFFFF_FFFFL;
+        }
+        return t;
     }
 
     public String stateLabel() {

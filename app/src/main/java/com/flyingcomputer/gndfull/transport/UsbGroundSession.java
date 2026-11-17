@@ -7,6 +7,8 @@ import com.flyingcomputer.gndfull.UsbProxy;
 import com.flyingcomputer.gndfull.VideoReceiver;
 import com.flyingcomputer.gndfull.control.ControlSession;
 import com.flyingcomputer.gndfull.crsf.RoverCrossfireTelemetry;
+import com.flyingcomputer.gndfull.transport.rover.GroundLinkFrame;
+import com.flyingcomputer.gndfull.transport.rover.LinkRate;
 import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
 import com.flyingcomputer.gndfull.video.VideoMetrics;
 
@@ -28,6 +30,16 @@ public final class UsbGroundSession implements AutoCloseable {
     private UsbProxy proxy;
     private VideoReceiver video;
     private final VideoMetrics videoMetrics = new VideoMetrics();
+    /** Rover → ground air link, from the ground's link frames (receiver side). */
+    private final LinkRate rovTx = new LinkRate();
+    /** Ground → rover air link, from the rover's telemetry (receiver side). */
+    private final LinkRate gndTx = new LinkRate();
+    private volatile GroundLinkFrame lastGroundLink;
+    private volatile long lastGroundLinkNanos;
+    private volatile RoverTelemFrame lastTelem;
+    private volatile long lastTelemNanos;
+    /** Older than this, telemetry and ground link frames are not shown. */
+    private static final long FRESH_NANOS = 2_500_000_000L;
     /**
      * krono rtt client on USB channel 3 (the ground P4's clock, which the rover follows). One per
      * connection: close() ends its thread, and MainActivity closes the session before reconnecting.
@@ -43,15 +55,38 @@ public final class UsbGroundSession implements AutoCloseable {
         this.listener = listener;
         this.enableRc = enableRc;
         rcUsb.setListener(
-                telem -> {
-                    // As CRSF telemetry from EdgeTX's external module: link stats
-                    // (gnd->rov RSSI, LQ), battery (VBUS), attitude, flight mode.
-                    byte[] crsf = RoverCrossfireTelemetry.frames(telem);
-                    if (crsf != null) {
-                        control.pushExternalModuleRx(crsf);
+                new RcUsbHandler.Listener() {
+                    @Override
+                    public void onTelemetry(RoverTelemFrame telem) {
+                        // As CRSF telemetry from EdgeTX's external module: link stats
+                        // (gnd->rov RSSI, LQ), battery (VBUS), attitude, flight mode.
+                        byte[] crsf = RoverCrossfireTelemetry.frames(telem);
+                        if (crsf != null) {
+                            control.pushExternalModuleRx(crsf);
+                        }
+                        lastTelem = telem;
+                        lastTelemNanos = System.nanoTime();
+                        gndTx.add(
+                                telem.linkMs,
+                                telem.linkRxBytes,
+                                telem.linkRxPackets,
+                                telem.linkRxLost,
+                                System.nanoTime());
+                        if (listener != null) {
+                            listener.onTelemetry(telem);
+                        }
                     }
-                    if (listener != null) {
-                        listener.onTelemetry(telem);
+
+                    @Override
+                    public void onGroundLink(GroundLinkFrame link) {
+                        lastGroundLink = link;
+                        lastGroundLinkNanos = System.nanoTime();
+                        rovTx.add(
+                                link.linkMs,
+                                link.rxBytes,
+                                link.rxPackets,
+                                link.rxLost,
+                                System.nanoTime());
                     }
                 });
     }
@@ -59,7 +94,14 @@ public final class UsbGroundSession implements AutoCloseable {
     public synchronized void connect(UsbManager manager, UsbDevice device, Surface surface)
             throws Exception {
         closeInternals();
-        video = new VideoReceiver(surface, videoMetrics);
+        videoMetrics.reset();
+        rovTx.clear();
+        gndTx.clear();
+        lastGroundLink = null;
+        lastTelem = null;
+        // Before the video receiver: it maps capture stamps onto the ground clock.
+        clock = new SynchClient();
+        video = new VideoReceiver(surface, videoMetrics, clock);
         proxy =
                 new UsbProxy(
                         error -> {
@@ -68,7 +110,6 @@ public final class UsbGroundSession implements AutoCloseable {
                             }
                         });
         UsbProxy.Channel videoChannel = proxy.registerHandler(0, video);
-        clock = new SynchClient();
         UsbProxy.Channel syncChannel = proxy.registerHandler(SynchClient.CHANNEL, clock);
         UsbProxy.Channel cliChannel =
                 proxy.registerOptionalHandler(CliUsbHandler.CHANNEL, cliUsb.sessionHandler());
@@ -143,6 +184,28 @@ public final class UsbGroundSession implements AutoCloseable {
 
     public VideoMetrics videoMetrics() {
         return videoMetrics;
+    }
+
+    /** Rover → ground air link (measured by the ground). */
+    public LinkRate rovTx() {
+        return rovTx;
+    }
+
+    /** Ground → rover air link (measured by the rover). */
+    public LinkRate gndTx() {
+        return gndTx;
+    }
+
+    /** Newest ground link frame (its RSSI = the rover's frames at the ground C6), null if stale. */
+    public GroundLinkFrame groundLink(long nowNanos) {
+        GroundLinkFrame f = lastGroundLink;
+        return f != null && nowNanos - lastGroundLinkNanos < FRESH_NANOS ? f : null;
+    }
+
+    /** Newest rover telemetry, null if stale (radio link down) or none yet. */
+    public RoverTelemFrame telemetry(long nowNanos) {
+        RoverTelemFrame t = lastTelem;
+        return t != null && nowNanos - lastTelemNanos < FRESH_NANOS ? t : null;
     }
 
     /** Ground-clock time source (USB channel 3), or null when not connected. */

@@ -33,6 +33,7 @@ import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapterFactory;
 import com.flyingcomputer.gndfull.edgetx.Tx16InputMap;
 import com.flyingcomputer.gndfull.transport.UsbGroundSession;
+import com.flyingcomputer.gndfull.transport.rover.GroundLinkFrame;
 import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
 import com.flyingcomputer.gndfull.ui.EdgeTxLcdView;
 import com.flyingcomputer.gndfull.ui.EdgeTxUiWire;
@@ -63,7 +64,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     private EdgeTxLcdView lcdView;
     private volatile boolean surfaceReady;
     private volatile int currentDevice = -1;
-    private volatile RoverTelemFrame lastTelem;
     // RC-only views (LCD, switches, gimbals), hidden in CLI mode.
     private final List<View> rcViews = new ArrayList<>();
     private CliView cliView;
@@ -87,20 +87,28 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             new Runnable() {
                 @Override
                 public void run() {
-                    VideoMetrics.Snapshot video =
-                            usbSession == null
-                                    ? null
-                                    : usbSession.videoMetrics().snapshot();
-                    osd.setText(
-                            OsdPresenter.format(
-                                    usbSession != null && currentDevice >= 0,
-                                    video,
-                                    lastTelem,
-                                    control.state(),
-                                    0));
+                    osd.setText(OsdPresenter.format(osdInput()));
                     ui.postDelayed(this, 500);
                 }
             };
+
+    private OsdPresenter.Input osdInput() {
+        long now = System.nanoTime();
+        boolean linked = usbSession != null && currentDevice >= 0;
+        if (!linked) {
+            return new OsdPresenter.Input(0, null, 0, null, null, -1, -1);
+        }
+        GroundLinkFrame ground = usbSession.groundLink(now);
+        RoverTelemFrame telem = usbSession.telemetry(now);
+        return new OsdPresenter.Input(
+                ground == null ? 0 : ground.rssiDbm,
+                usbSession.rovTx().result(now),
+                telem == null ? 0 : telem.rssiDbm,
+                usbSession.gndTx().result(now),
+                usbSession.videoMetrics().window(now),
+                telem == null ? -1 : telem.rcLatMs,
+                telem == null ? -1 : telem.rcLossPerMille);
+    }
 
     private final BroadcastReceiver usbEvents =
             new BroadcastReceiver() {
@@ -161,9 +169,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                             }
 
                             @Override
-                            public void onTelemetry(RoverTelemFrame telem) {
-                                lastTelem = telem;
-                            }
+                            public void onTelemetry(RoverTelemFrame telem) {}
 
                             @Override
                             public void onVideoMetrics(VideoMetrics.Snapshot metrics) {}
@@ -271,7 +277,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         osd.setTextColor(0xffc8d6df);
         osd.setTextSize(12f);
         osd.setPadding(16, 12, 16, 12);
-        osd.setText("LINK / FPS / LATENCY — unavailable");
+        osd.setText(OsdPresenter.format(new OsdPresenter.Input(0, null, 0, null, null, -1, -1)));
         videoPane.addView(
                 osd,
                 new FrameLayout.LayoutParams(
@@ -547,7 +553,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         if (usbSession != null) {
             usbSession.close();
         }
-        lastTelem = null;
         currentDevice = -1;
     }
 
