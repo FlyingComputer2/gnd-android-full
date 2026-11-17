@@ -274,9 +274,14 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, videoHeight));
         osd = new TextView(this);
-        osd.setTextColor(0xffc8d6df);
+        // Green bold monospace on a darkened box: readable over any video, columns line up.
+        osd.setTextColor(0xff39ff6a);
+        osd.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
         osd.setTextSize(12f);
-        osd.setPadding(16, 12, 16, 12);
+        osd.setBackgroundColor(0xb3000000);
+        osd.setPadding(
+                Math.round(density * 6f), Math.round(density * 4f),
+                Math.round(density * 6f), Math.round(density * 4f));
         osd.setText(OsdPresenter.format(new OsdPresenter.Input(0, null, 0, null, null, -1, -1)));
         videoPane.addView(
                 osd,
