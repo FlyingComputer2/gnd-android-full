@@ -27,6 +27,32 @@ public final class ControlSessionInputTest {
     }
 
     @Test
+    public void reconnectResumesWithoutRearm() {
+        session.onUsbConnected();
+        assertEquals(DrivingState.READY, session.state());
+        session.requestArm();
+        assertEquals(DrivingState.ARMED, session.state());
+        session.onUsbDisconnected();
+        assertEquals(DrivingState.FAILSAFE, session.state());
+        session.requestArm(); // nothing to send while USB is down
+        assertEquals(DrivingState.FAILSAFE, session.state());
+        session.onUsbConnected(); // arm switch still high: no cycle needed
+        assertEquals(DrivingState.READY, session.state());
+        session.requestArm();
+        assertEquals(DrivingState.ARMED, session.state());
+    }
+
+    @Test
+    public void reconnectWhileMenuOpenStaysInactive() {
+        session.setMenuOpen(true);
+        session.onUsbDisconnected();
+        session.onUsbConnected();
+        assertEquals(DrivingState.FAILSAFE, session.state());
+        session.setMenuOpen(false);
+        assertEquals(DrivingState.READY, session.state());
+    }
+
+    @Test
     public void submitsSticksDuringFailsafe() throws Exception {
         session.onUsbDisconnected();
         assertEquals(DrivingState.FAILSAFE, session.state());

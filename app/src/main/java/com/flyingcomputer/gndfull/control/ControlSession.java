@@ -34,6 +34,7 @@ public final class ControlSession implements AutoCloseable {
     private volatile DrivingState state = DrivingState.INACTIVE;
     private volatile int[] lastOutputs = new int[16];
     private volatile boolean menuBlocksDriving;
+    private volatile boolean linkHold;
     private volatile boolean radioPowered = true;
     private volatile ScheduledFuture<?> refresh;
     /** EdgeTX external module (CRSF) output; owner thread only. */
@@ -155,21 +156,24 @@ public final class ControlSession implements AutoCloseable {
         syncHardwareInput();
     }
 
+    /**
+     * CLI mode: driving stays blocked ({@link #setMenuOpen}), but the RC link keeps sending
+     * disarmed hold frames (steering centre, throttle 0) so the rover's RC loss, and with it the
+     * link statistics EdgeTX shows as telemetry, stay live.
+     */
+    public void setLinkHold(boolean hold) {
+        linkHold = hold;
+    }
+
+    public boolean linkHold() {
+        return linkHold;
+    }
+
     public void requestArm() {
         if (menuBlocksDriving || state == DrivingState.FAILSAFE) {
             return;
         }
         state = DrivingState.ARMED;
-    }
-
-    /**
-     * Leaves the USB-loss FAILSAFE once the arm switch is seen off, so a reconnect never re-arms
-     * on a switch left high. The rover itself also needs neutral throttle to arm.
-     */
-    public void clearFailsafeOnDisarmedSwitch() {
-        if (state == DrivingState.FAILSAFE && !menuBlocksDriving && radioPowered) {
-            state = DrivingState.READY;
-        }
     }
 
     /** Rover-side state only: EdgeTX keeps the operator's inputs (the bridge calls this each tick). */
@@ -235,12 +239,20 @@ public final class ControlSession implements AutoCloseable {
         return adapter;
     }
 
+    /**
+     * A (re)connected ground resumes driving the way a radio dropout does: no arm-switch cycle.
+     * The rover is the safety gate: it leaves its own failsafe (or arms) only with the throttle at
+     * neutral. FAILSAFE here therefore only means "no USB" (nothing can be sent then anyway).
+     * Before, FAILSAFE stayed latched until the arm switch was seen off, so any USB session
+     * restart (ground reboot or re-enumeration, app back from the background) needed a rearm.
+     */
     public void onUsbConnected() {
-        if (!menuBlocksDriving && state != DrivingState.FAILSAFE) {
+        if (!menuBlocksDriving) {
             state = DrivingState.READY;
         }
     }
 
+    /** USB gone: nothing reaches the rover, which fails safe on its own RC timeout. */
     public void onUsbDisconnected() {
         state = DrivingState.FAILSAFE;
     }

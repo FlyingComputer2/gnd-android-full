@@ -51,6 +51,15 @@ public final class EdgeTxOutputMapper {
                 pwmToPerMille(ch.channel(CH_SERVO3)));
     }
 
+    /**
+     * The frame sent while the app holds the link without driving (CLI mode): never armed,
+     * steering centre, throttle 0; mode and the CH2 / CH3 servos follow EdgeTX as before.
+     */
+    public static RoverRcFrame hold(int seq, long timeUsLow32, CrsfRcChannels ch) {
+        RoverRcFrame f = map(seq, timeUsLow32, ch, false);
+        return new RoverRcFrame(f.seq, f.timeUsLow32, f.src, 0, f.mode, 0, 0, f.aux, f.aux2);
+    }
+
     /** EdgeTX +-100 % = 1500 +- 512 us = +-1000. */
     public static int pwmToPerMille(int pwmMicroseconds) {
         return Math.max(-1000, Math.min(1000, Math.round((pwmMicroseconds - 1500) * 1000f / 512f)));

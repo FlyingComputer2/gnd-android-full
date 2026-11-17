@@ -26,12 +26,14 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
+import com.flyingcomputer.gndfull.cli.CliView;
 import com.flyingcomputer.gndfull.control.ControlSession;
 import com.flyingcomputer.gndfull.control.DrivingMode;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapterFactory;
 import com.flyingcomputer.gndfull.edgetx.Tx16InputMap;
 import com.flyingcomputer.gndfull.transport.UsbGroundSession;
+import com.flyingcomputer.gndfull.transport.rover.GroundLinkFrame;
 import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
 import com.flyingcomputer.gndfull.ui.EdgeTxLcdView;
 import com.flyingcomputer.gndfull.ui.EdgeTxUiWire;
@@ -39,6 +41,8 @@ import com.flyingcomputer.gndfull.ui.OsdPresenter;
 import com.flyingcomputer.gndfull.ui.StickClusterView;
 import com.flyingcomputer.gndfull.ui.SwitchStripView;
 import com.flyingcomputer.gndfull.video.VideoMetrics;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -60,7 +64,13 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     private EdgeTxLcdView lcdView;
     private volatile boolean surfaceReady;
     private volatile int currentDevice = -1;
-    private volatile RoverTelemFrame lastTelem;
+    // RC-only views (LCD, switches, gimbals), hidden in CLI mode.
+    private final List<View> rcViews = new ArrayList<>();
+    private CliView cliView;
+    private FrameLayout videoPane;
+    private int videoHeightRc;
+    private int videoHeightCli;
+    private boolean cliActive;
 
     private final Runnable lcdRefresh =
             new Runnable() {
@@ -77,20 +87,28 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             new Runnable() {
                 @Override
                 public void run() {
-                    VideoMetrics.Snapshot video =
-                            usbSession == null
-                                    ? null
-                                    : usbSession.videoMetrics().snapshot();
-                    osd.setText(
-                            OsdPresenter.format(
-                                    usbSession != null && currentDevice >= 0,
-                                    video,
-                                    lastTelem,
-                                    control.state(),
-                                    0));
+                    osd.setText(OsdPresenter.format(osdInput()));
                     ui.postDelayed(this, 500);
                 }
             };
+
+    private OsdPresenter.Input osdInput() {
+        long now = System.nanoTime();
+        boolean linked = usbSession != null && currentDevice >= 0;
+        if (!linked) {
+            return new OsdPresenter.Input(0, null, 0, null, null, -1, -1);
+        }
+        GroundLinkFrame ground = usbSession.groundLink(now);
+        RoverTelemFrame telem = usbSession.telemetry(now);
+        return new OsdPresenter.Input(
+                ground == null ? 0 : ground.rssiDbm,
+                usbSession.rovTx().result(now),
+                telem == null ? 0 : telem.rssiDbm,
+                usbSession.gndTx().result(now),
+                usbSession.videoMetrics().window(now),
+                telem == null ? -1 : telem.rcLatMs,
+                telem == null ? -1 : telem.rcLossPerMille);
+    }
 
     private final BroadcastReceiver usbEvents =
             new BroadcastReceiver() {
@@ -151,9 +169,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                             }
 
                             @Override
-                            public void onTelemetry(RoverTelemFrame telem) {
-                                lastTelem = telem;
-                            }
+                            public void onTelemetry(RoverTelemFrame telem) {}
 
                             @Override
                             public void onVideoMetrics(VideoMetrics.Snapshot metrics) {}
@@ -201,13 +217,18 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                     @Override
                     public void onItemSelected(
                             android.widget.AdapterView<?> parent, View view, int position, long id) {
-                        if (position != DrivingMode.RC.ordinal()) {
+                        if (position == DrivingMode.CLI.ordinal()) {
+                            setCliMode(true);
+                        } else if (position == DrivingMode.RC.ordinal()) {
+                            setCliMode(false);
+                        } else {
                             new AlertDialog.Builder(MainActivity.this)
                                     .setTitle("Not available")
-                                    .setMessage("Only RC mode is implemented in this baseline.")
+                                    .setMessage("PLN is not implemented yet.")
                                     .setPositiveButton("OK", null)
                                     .show();
-                            mode.setSelection(DrivingMode.RC.ordinal());
+                            mode.setSelection(
+                                    cliActive ? DrivingMode.CLI.ordinal() : DrivingMode.RC.ordinal());
                         }
                     }
 
@@ -242,8 +263,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, barH + padV * 2));
 
-        FrameLayout videoPane = new FrameLayout(this);
+        videoPane = new FrameLayout(this);
         int videoHeight = Math.round(density * 220f);
+        videoHeightRc = videoHeight;
+        videoHeightCli = Math.round(density * 120f);
         videoSurface = new SurfaceView(this);
         videoSurface.getHolder().addCallback(this);
         videoPane.addView(
@@ -251,10 +274,15 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, videoHeight));
         osd = new TextView(this);
-        osd.setTextColor(0xffc8d6df);
+        // Green bold monospace on a darkened box: readable over any video, columns line up.
+        osd.setTextColor(0xff39ff6a);
+        osd.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
         osd.setTextSize(12f);
-        osd.setPadding(16, 12, 16, 12);
-        osd.setText("LINK / FPS / LATENCY — unavailable");
+        osd.setBackgroundColor(0xb3000000);
+        osd.setPadding(
+                Math.round(density * 6f), Math.round(density * 4f),
+                Math.round(density * 6f), Math.round(density * 4f));
+        osd.setText(OsdPresenter.format(new OsdPresenter.Input(0, null, 0, null, null, -1, -1)));
         videoPane.addView(
                 osd,
                 new FrameLayout.LayoutParams(
@@ -285,6 +313,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 lcdNav,
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, navKeyH + padV * 2));
+        rcViews.add(lcdPane);
         root.addView(
                 lcdPane,
                 new LinearLayout.LayoutParams(
@@ -293,6 +322,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         SwitchStripView upper = new SwitchStripView(this, null);
         upper.setLabels(new String[] {"SE", "SF", "SG", "SH"});
         edgeTxUi.wireSwitchRow(upper, Tx16InputMap.UPPER_SWITCH_INDICES);
+        rcViews.add(upper);
         root.addView(
                 upper,
                 new LinearLayout.LayoutParams(
@@ -302,6 +332,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         SwitchStripView lower = new SwitchStripView(this, null);
         lower.setLabels(new String[] {"SD", "SC", "SB", "SA"});
         edgeTxUi.wireSwitchRow(lower, Tx16InputMap.LOWER_SWITCH_INDICES);
+        rcViews.add(lower);
         root.addView(
                 lower,
                 new LinearLayout.LayoutParams(
@@ -316,8 +347,18 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         gimbals.addView(
                 buildStickCluster(false),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        rcViews.add(gimbals);
         root.addView(
                 gimbals,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        cliView = new CliView(this);
+        // Consoles over the ground USB link (channel 4), not IP.
+        cliView.setLink(usbSession.cliUsb());
+        cliView.setVisibility(View.GONE);
+        root.addView(
+                cliView,
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
@@ -398,13 +439,50 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 .setTitle("Connection & EdgeTX")
                 .setMessage(
                         "USB ch0 rtp-h264-v1 video, ch2 rc-v1 MSP (rover_sample 0x4201).\n"
+                                + "CLI: USB ch4 cli-v1 ("
+                                + (usbSession.cliUsb().isOpen() ? "open" : "not open")
+                                + "; rov vs 5092, rov l3 2410, gnd l3 2400 on the ground).\n"
                                 + "EdgeTX: "
-                                + control.adapter().status().detail()
-                                + "\nRover RC / S.Port adapters are not enabled in this build.")
+                                + control.adapter().status().detail())
                 .setNeutralButton("Connect USB", (d, w) -> discoverUsb())
-                .setPositiveButton("Close", (d, w) -> control.setMenuOpen(false))
-                .setOnDismissListener(d -> control.setMenuOpen(false))
+                .setPositiveButton("Close", null)
+                // Driving stays blocked while the CLI is shown.
+                .setOnDismissListener(d -> control.setMenuOpen(cliActive))
                 .show();
+    }
+
+    /**
+     * CLI replaces the RC controls below the video (video stays, smaller). Like
+     * the menu, it puts control in the non-driving state (disarm) while shown.
+     */
+    private void setCliMode(boolean on) {
+        if (on == cliActive) {
+            return;
+        }
+        cliActive = on;
+        // Driving blocked, but disarmed hold frames keep the rover link and telemetry alive.
+        control.setLinkHold(on);
+        control.setMenuOpen(on);
+        for (View v : rcViews) {
+            v.setVisibility(on ? View.GONE : View.VISIBLE);
+        }
+        cliView.setVisibility(on ? View.VISIBLE : View.GONE);
+        int h = on ? videoHeightCli : videoHeightRc;
+        ViewGroup.LayoutParams lp = videoPane.getLayoutParams();
+        lp.height = h;
+        videoPane.setLayoutParams(lp);
+        ViewGroup.LayoutParams sp = videoSurface.getLayoutParams();
+        sp.height = h;
+        videoSurface.setLayoutParams(sp);
+        if (!on) {
+            View focused = getCurrentFocus();
+            if (focused != null) {
+                ((android.view.inputmethod.InputMethodManager)
+                                getSystemService(INPUT_METHOD_SERVICE))
+                        .hideSoftInputFromWindow(focused.getWindowToken(), 0);
+                focused.clearFocus();
+            }
+        }
     }
 
     private void toggleRadioPower() {
@@ -480,7 +558,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         if (usbSession != null) {
             usbSession.close();
         }
-        lastTelem = null;
         currentDevice = -1;
     }
 
@@ -504,6 +581,9 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         ui.removeCallbacks(lcdRefresh);
         ui.removeCallbacks(osdRefresh);
         unregisterReceiver(usbEvents);
+        if (cliView != null) {
+            cliView.detach();
+        }
         surfaceReady = false;
         submit(this::disconnectUsb);
         usbSetup.shutdown();
