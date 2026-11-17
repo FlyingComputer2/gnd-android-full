@@ -119,7 +119,10 @@ public final class Completions {
             for (String arg : args) {
                 String key = arg.substring(0, arg.indexOf('=') + 1);
                 if (startsWith(key, partial) && !used(done, key)) {
-                    add(out, head + key, head + arg);
+                    String value = arg.substring(key.length());
+                    int alts = value.split("\\|").length;
+                    // Long enums (modulation=, channel=) are listed once the key is picked.
+                    add(out, head + key, head + key + (alts > 3 ? "<" + alts + " values>" : value));
                 }
             }
         }
@@ -190,6 +193,13 @@ public final class Completions {
         return s.regionMatches(true, 0, prefix, 0, prefix.length());
     }
 
+    /** l3 PHY names (winject-l3 PhyAirtime k_phys), for modulation=. */
+    static final String MODULATIONS =
+            "DSS_1M_L|DSS_2M_S|DSS_2M_L|CCK_5M_L|CCK_5M_S|CCK_11M_L|CCK_11M_S|OFDM_6M|OFDM_9M|OFDM_12M|OFDM_18M|OFDM_24M|OFDM_36M|OFDM_48M|OFDM_54M|OFDM_MCS0_LGI|OFDM_MCS1_LGI|OFDM_MCS2_LGI|OFDM_MCS3_LGI|OFDM_MCS4_LGI|OFDM_MCS5_LGI|OFDM_MCS6_LGI|OFDM_MCS7_LGI|OFDM_MCS0_SGI|OFDM_MCS1_SGI|OFDM_MCS2_SGI|OFDM_MCS3_SGI|OFDM_MCS4_SGI|OFDM_MCS5_SGI|OFDM_MCS6_SGI|OFDM_MCS7_SGI";
+
+    /** 2.4 GHz channels (the C6 radios are 2.4 GHz only). */
+    static final String CHANNELS = "1|2|3|4|5|6|7|8|9|10|11|12|13|14";
+
     /** winject-l3 console (ConsoleCommands k_help_text), long and short command names. */
     public static final Grammar L3 =
             new Grammar(
@@ -209,7 +219,8 @@ public final class Completions {
                     "radio_info|ri",
                     "radio_caps_info|rci",
                     "radio_stats|rs",
-                    "radio_tx|rt channel=<n> tx_power=<dBm> modulation=<mod> cca=0|1",
+                    "radio_tx|rt channel=" + CHANNELS + " tx_power=<dBm> modulation=" + MODULATIONS
+                            + " cca=0|1",
                     "radio_mplane|rmp <radio_command_line>",
                     "reset|r",
                     "config slot=<u8>",

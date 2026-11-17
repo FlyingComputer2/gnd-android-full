@@ -52,7 +52,7 @@ public final class CliView extends LinearLayout {
     private final class Pane {
         final ConsoleTarget target;
         final LineBuffer buffer = new LineBuffer(MAX_LINES);
-        final CommandHistory history = new CommandHistory(100);
+        final CommandHistory history;
         final ScrollView scroll;
         final TextView text;
         final TextView title;
@@ -61,6 +61,7 @@ public final class CliView extends LinearLayout {
 
         Pane(ConsoleTarget target, LinearLayout box, TextView title, ScrollView scroll, TextView text) {
             this.target = target;
+            this.history = new CommandHistory(HISTORY_MAX, prefsStore(box.getContext(), target));
             this.box = box;
             this.title = title;
             this.scroll = scroll;
@@ -73,6 +74,32 @@ public final class CliView extends LinearLayout {
             text.setText(buffer.toString());
             scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
         }
+    }
+
+    static final int HISTORY_MAX = 100;
+
+    /**
+     * Command history per console in SharedPreferences ("cli_history", key = console name),
+     * one command per line, so it survives app restarts and APK updates.
+     */
+    static CommandHistory.Store prefsStore(Context context, ConsoleTarget target) {
+        android.content.SharedPreferences prefs =
+                context.getSharedPreferences("cli_history", Context.MODE_PRIVATE);
+        String key = target.name();
+        return new CommandHistory.Store() {
+            @Override
+            public java.util.List<String> load() {
+                String all = prefs.getString(key, "");
+                return all.isEmpty()
+                        ? java.util.List.of()
+                        : java.util.Arrays.asList(all.split("\n"));
+            }
+
+            @Override
+            public void save(java.util.List<String> oldestFirst) {
+                prefs.edit().putString(key, String.join("\n", oldestFirst)).apply();
+            }
+        };
     }
 
     public CliView(Context context) {

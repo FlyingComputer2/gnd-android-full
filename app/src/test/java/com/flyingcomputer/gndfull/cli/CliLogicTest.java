@@ -125,4 +125,45 @@ public class CliLogicTest {
                 Completions.complete("get sr", Completions.VSTREAMER.candidates("get sr")));
         assertEquals("x", Completions.complete("x", List.of()));
     }
+
+    @Test
+    public void listsModulationAndChannelEnums() {
+        List<String> mods = inserts(Completions.L3.candidates("rt modulation=OFDM_3"));
+        assertEquals(List.of("rt modulation=OFDM_36M"), mods);
+        assertEquals(31, inserts(Completions.L3.candidates("radio_tx modulation=")).size());
+        assertTrue(inserts(Completions.L3.candidates("rt channel=1")).contains("rt channel=11"));
+        assertEquals(6, inserts(Completions.L3.candidates("rt channel=1")).size()); // 1, 10-14
+        List<Completions.Candidate> keys = Completions.L3.candidates("rt mod");
+        assertEquals("rt modulation=<31 values>", keys.get(0).label());
+    }
+
+    @Test
+    public void historySurvivesRestart() {
+        List<String> disk = new ArrayList<>();
+        CommandHistory.Store store =
+                new CommandHistory.Store() {
+                    @Override
+                    public List<String> load() {
+                        return new ArrayList<>(disk);
+                    }
+
+                    @Override
+                    public void save(List<String> oldestFirst) {
+                        disk.clear();
+                        disk.addAll(oldestFirst);
+                    }
+                };
+        CommandHistory h = new CommandHistory(3, store);
+        h.add("ri");
+        h.add("rs");
+        h.add("rs"); // repeat of the newest: not stored again
+        h.add("gm");
+        h.add("version");
+        assertEquals(List.of("rs", "gm", "version"), disk);
+
+        CommandHistory again = new CommandHistory(3, store); // app restarted
+        assertEquals(List.of("version", "gm", "rs"), again.newestFirst());
+        assertEquals("version", again.previous());
+        assertEquals("gm", again.previous());
+    }
 }

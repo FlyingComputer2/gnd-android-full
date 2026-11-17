@@ -3,14 +3,39 @@ package com.flyingcomputer.gndfull.cli;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Shell-style command history with an up/down cursor. */
+/** Shell-style command history with an up/down cursor, optionally kept across restarts. */
 public final class CommandHistory {
+    /** Where the history is kept between app runs (oldest first). */
+    public interface Store {
+        List<String> load();
+
+        void save(List<String> oldestFirst);
+    }
+
     private final int max;
     private final ArrayList<String> items = new ArrayList<>();
+    private final Store store;
     private int cursor; // == items.size() when not browsing
 
     public CommandHistory(int max) {
+        this(max, null);
+    }
+
+    /** Loads the stored history (the newest {@code max}); every add saves it back. */
+    public CommandHistory(int max, Store store) {
         this.max = max;
+        this.store = store;
+        if (store != null) {
+            for (String s : store.load()) {
+                if (s != null && !s.isEmpty()) {
+                    items.add(s);
+                }
+            }
+            while (items.size() > max) {
+                items.remove(0);
+            }
+        }
+        cursor = items.size();
     }
 
     /** Snapshot, newest first (for completion; safe from any thread). */
@@ -28,6 +53,9 @@ public final class CommandHistory {
             items.add(cmd);
             if (items.size() > max) {
                 items.remove(0);
+            }
+            if (store != null) {
+                store.save(new ArrayList<>(items));
             }
         }
         cursor = items.size();
