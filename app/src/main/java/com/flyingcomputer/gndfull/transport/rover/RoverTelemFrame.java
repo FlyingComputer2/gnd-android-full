@@ -37,10 +37,10 @@ public final class RoverTelemFrame {
      * Ground → rover air link as the rover's L3 receives it (free-running u32, summed over all
      * upstreams), sampled at {@link #linkMs} rover monotonic ms. All 0 = unknown (older rover).
      */
-    public long linkMs;
-    public long linkRxBytes;
-    public long linkRxPackets;
-    public long linkRxLost;
+    public final long linkMs;
+    public final long linkRxBytes;
+    public final long linkRxPackets;
+    public final long linkRxLost;
 
     public RoverTelemFrame(
             int seq,
@@ -69,6 +69,29 @@ public final class RoverTelemFrame {
             int iMotorCentiAmps,
             int vbusCentiVolts,
             int rssiDbm) {
+        this(seq, rcAgeMs, state, mode, steerOut, thrOut, rcLossPerMille, rcLatMs, headingCentiDeg,
+                rollCentiDeg, pitchCentiDeg, iMotorCentiAmps, vbusCentiVolts, rssiDbm, 0, 0, 0, 0);
+    }
+
+    public RoverTelemFrame(
+            int seq,
+            int rcAgeMs,
+            int state,
+            int mode,
+            int steerOut,
+            int thrOut,
+            int rcLossPerMille,
+            int rcLatMs,
+            int headingCentiDeg,
+            int rollCentiDeg,
+            int pitchCentiDeg,
+            int iMotorCentiAmps,
+            int vbusCentiVolts,
+            int rssiDbm,
+            long linkMs,
+            long linkRxBytes,
+            long linkRxPackets,
+            long linkRxLost) {
         this.seq = seq;
         this.rcAgeMs = rcAgeMs;
         this.state = state;
@@ -83,6 +106,10 @@ public final class RoverTelemFrame {
         this.iMotorCentiAmps = iMotorCentiAmps;
         this.vbusCentiVolts = vbusCentiVolts;
         this.rssiDbm = rssiDbm;
+        this.linkMs = linkMs;
+        this.linkRxBytes = linkRxBytes;
+        this.linkRxPackets = linkRxPackets;
+        this.linkRxLost = linkRxLost;
     }
 
     public static RoverTelemFrame unpack(byte[] payload) {
@@ -119,17 +146,15 @@ public final class RoverTelemFrame {
             vbus = b.getShort() & 0xFFFF;
             rssi = b.get();
         }
-        RoverTelemFrame t =
-                new RoverTelemFrame(
-                        seq, rcAgeMs, state, mode, steerOut, thrOut, rcLoss, rcLatMs, heading, roll,
-                        pitch, iMotor, vbus, rssi);
+        long[] link = new long[4];
         if (payload.length == PAYLOAD_BYTES) {
-            t.linkMs = b.getInt() & 0xFFFF_FFFFL;
-            t.linkRxBytes = b.getInt() & 0xFFFF_FFFFL;
-            t.linkRxPackets = b.getInt() & 0xFFFF_FFFFL;
-            t.linkRxLost = b.getInt() & 0xFFFF_FFFFL;
+            for (int i = 0; i < link.length; i++) {
+                link[i] = b.getInt() & 0xFFFF_FFFFL; // link_ms, rx bytes, rx packets, rx lost
+            }
         }
-        return t;
+        return new RoverTelemFrame(
+                seq, rcAgeMs, state, mode, steerOut, thrOut, rcLoss, rcLatMs, heading, roll, pitch,
+                iMotor, vbus, rssi, link[0], link[1], link[2], link[3]);
     }
 
     public String stateLabel() {
