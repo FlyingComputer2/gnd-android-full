@@ -16,13 +16,13 @@ public final class OsdPresenterTest {
                                 new LinkRate.Result(6.12345, 0.84),
                                 -48,
                                 new LinkRate.Result(0.0412, 1.5),
-                                new VideoMetrics.Window(29.84, 73.6, 2.14),
+                                new VideoMetrics.Window(29.84, 73.6, 2.14, 0.34),
                                 8,
                                 10));
         assertEquals(
                 "ROVTX: -52 dbm 6.123 mbps 0.8%\n"
                         + "GNDTX: -48 dbm 0.041 mbps 1.5%\n"
-                        + "VIDEO: 29.8 fps 2.1 ms 74 ms\n"
+                        + "VIDEO: 29.8 fps 2.1 ms 74 ms 0.3%\n"
                         + "RC: 8 ms 1.0%",
                 s);
     }
@@ -33,7 +33,7 @@ public final class OsdPresenterTest {
         assertEquals(
                 "ROVTX: --- dbm --- mbps ---%\n"
                         + "GNDTX: --- dbm --- mbps ---%\n"
-                        + "VIDEO: --- fps --- ms --- ms\n"
+                        + "VIDEO: --- fps --- ms --- ms ---%\n"
                         + "RC: --- ms ---%",
                 s);
     }

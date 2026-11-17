@@ -31,6 +31,27 @@ public final class VideoMetricsTest {
     }
 
     @Test
+    public void rtpLossAfterFec() {
+        VideoMetrics m = new VideoMetrics();
+        m.window(0);
+        int seq = 65530;
+        for (int i = 0; i < 100; i++, seq++) {
+            if (i == 10 || i == 11 || i == 50) {
+                continue; // 3 lost, one across the 16-bit wrap region
+            }
+            m.onRtpSequence(seq);
+        }
+        m.onRtpSequence(seq - 5); // late: ignored
+        m.onRtpSequence(seq - 1); // duplicate: ignored
+        VideoMetrics.Window w = m.window(1000 * MS);
+        assertEquals(3 * 100.0 / 100, w.lossPercent(), 1e-9);
+        m.onRtpSequence(seq + 20000); // rover restart: resync, not loss
+        m.onRtpSequence(seq + 20001);
+        assertEquals(0, m.window(2000 * MS).lossPercent(), 1e-9);
+        assertEquals(-1, m.window(3000 * MS).lossPercent(), 0); // nothing arrived
+    }
+
+    @Test
     public void unknownWithoutStampsOrClock() {
         VideoMetrics m = new VideoMetrics();
         m.window(0);

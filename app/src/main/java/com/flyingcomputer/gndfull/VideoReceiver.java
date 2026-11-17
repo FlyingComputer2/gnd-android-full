@@ -75,6 +75,7 @@ public final class VideoReceiver implements UsbProxy.Handler, AutoCloseable {
     // RTP timestamp, marker and capture extension (one-byte header 0xBEDE, id 2, 8-byte BE ns).
     private void noteRtp(byte[] p) {
         if(p.length<12) return;
+        if(metrics!=null) metrics.onRtpSequence(((p[2]&0xff)<<8)|(p[3]&0xff));
         long ts=((p[4]&0xffL)<<24)|((p[5]&0xffL)<<16)|((p[6]&0xffL)<<8)|(p[7]&0xffL);
         if(ts!=packetTs) { previousTs=packetTs; packetTs=ts; }
         packetMarker=(p[1]&0x80)!=0;

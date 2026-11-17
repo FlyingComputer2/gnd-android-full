@@ -10,7 +10,8 @@ import java.util.Locale;
  * <pre>
  * ROVTX: -52 dbm 6.123 mbps 0.8%     rover → ground air link, as the ground receives it
  * GNDTX: -48 dbm 0.041 mbps 1.5%     ground → rover air link, as the rover receives it
- * VIDEO: 29.8 fps 2.1 ms 74 ms       decoded fps, RFC 3550 frame jitter, camera-to-decode latency
+ * VIDEO: 29.8 fps 2.1 ms 74 ms 0.3%  decoded fps, RFC 3550 frame jitter, camera-to-decode latency,
+ *                                    RTP loss after the ground's FEC
  * RC: 8 ms 1.0%                      phone → rover RC latency (p50) and loss, rover side
  * </pre>
  *
@@ -45,7 +46,9 @@ public final class OsdPresenter {
                 .append(v == null || v.jitterMs() < 0 ? NA : fmt("%.1f", v.jitterMs()))
                 .append(" ms ")
                 .append(v == null || v.latencyMs() < 0 ? NA : fmt("%.0f", v.latencyMs()))
-                .append(" ms\n");
+                .append(" ms ")
+                .append(v == null || v.lossPercent() < 0 ? NA : fmt("%.1f", v.lossPercent()))
+                .append("%\n");
         sb.append("RC: ")
                 .append(in.rcLatencyMs() < 0 ? NA : Integer.toString(in.rcLatencyMs()))
                 .append(" ms ")
