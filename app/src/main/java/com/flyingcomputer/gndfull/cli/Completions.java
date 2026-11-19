@@ -197,6 +197,11 @@ public final class Completions {
     static final String MODULATIONS =
             "DSS_1M_L|DSS_2M_S|DSS_2M_L|CCK_5M_L|CCK_5M_S|CCK_11M_L|CCK_11M_S|OFDM_6M|OFDM_9M|OFDM_12M|OFDM_18M|OFDM_24M|OFDM_36M|OFDM_48M|OFDM_54M|OFDM_MCS0_LGI|OFDM_MCS1_LGI|OFDM_MCS2_LGI|OFDM_MCS3_LGI|OFDM_MCS4_LGI|OFDM_MCS5_LGI|OFDM_MCS6_LGI|OFDM_MCS7_LGI|OFDM_MCS0_SGI|OFDM_MCS1_SGI|OFDM_MCS2_SGI|OFDM_MCS3_SGI|OFDM_MCS4_SGI|OFDM_MCS5_SGI|OFDM_MCS6_SGI|OFDM_MCS7_SGI";
 
+    /** vstreamer camera image controls (esp32p4_csi_device live keys). */
+    static final String IMAGE_KEYS =
+            "exposure_us|gain|gain_ceiling|ae_target|awb|wb_r|wb_b|brightness|contrast"
+                    + "|saturation|hue|gamma|sharpness";
+
     /** 2.4 GHz channels (the C6 radios are 2.4 GHz only). */
     static final String CHANNELS = "1|2|3|4|5|6|7|8|9|10|11|12|13|14";
 
@@ -241,11 +246,26 @@ public final class Completions {
                     "set tx pause 0|1",
                     "get src state|status|backend|stats|size|fps|buffers|light_freq|rotate|driver"
                             + "|dq_stats|bitrate|gop|qp_min|qp_max|rc|codec|enc_frames|encode_ms"
-                            + "|latency_ms|node_latency_ms|encode_cpu|encode_prio",
+                            + "|latency_ms|node_latency_ms|encode_cpu|encode_prio"
+                            + "|sensor_state|isp_state|" + IMAGE_KEYS,
                     "set src bitrate <kbit/s>",
                     "set src gop <frames>",
                     "set src idr 1",
                     "set src reset_stats 1",
+                    // Camera image controls (OV5647 sensor, P4 ISP), applied while streaming.
+                    "set src exposure_us <us,0:auto>",
+                    "set src gain <16-1023x16,0:auto>",
+                    "set src gain_ceiling <16-1023x16>",
+                    "set src ae_target <2-235>",
+                    "set src awb 0|1",
+                    "set src wb_r <1-3999x1000>",
+                    "set src wb_b <1-3999x1000>",
+                    "set src brightness <-128-127>",
+                    "set src contrast <0-255,128:1x>",
+                    "set src saturation <0-255,128:1x>",
+                    "set src hue <0-360deg>",
+                    "set src gamma <20-400x100,0:off>",
+                    "set src sharpness <0-400%>",
                     "get pay mtu|fps|datagrams_copied|datagrams_dropped|datagrams_in_place"
                             + "|pool_misses",
                     "set pay mtu <bytes>",
