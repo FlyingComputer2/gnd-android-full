@@ -81,6 +81,14 @@ public class CliLogicTest {
         assertEquals(1, c.size());
         assertEquals("set src bitrate ", c.get(0).insert());
         assertEquals("set src bitrate <kbit/s>", c.get(0).label());
+        List<Completions.Candidate> exp = Completions.VSTREAMER.candidates("set src expo");
+        assertEquals(1, exp.size());
+        assertEquals("set src exposure_us <us,0:auto>", exp.get(0).label());
+        assertEquals(List.of("set src awb 0", "set src awb 1"),
+                inserts(Completions.VSTREAMER.candidates("set src awb ")));
+        assertTrue(inserts(Completions.VSTREAMER.candidates("get src "))
+                .containsAll(List.of("get src sensor_state", "get src isp_state",
+                        "get src sharpness")));
         assertEquals("rt tx_power=<dBm>",
                 Completions.L3.candidates("rt tx").get(0).label());
     }
