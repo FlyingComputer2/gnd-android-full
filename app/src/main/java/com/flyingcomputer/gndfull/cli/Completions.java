@@ -199,7 +199,7 @@ public final class Completions {
 
     /** vstreamer camera image controls (esp32p4_csi_device live keys). */
     static final String IMAGE_KEYS =
-            "exposure_us|gain|gain_ceiling|ae_target|awb|wb_r|wb_g|wb_b|brightness|contrast"
+            "exposure_us|gain|gain_ceiling|ae_target|awb|wb_r|wb_b|brightness|contrast"
                     + "|saturation|hue|gamma|sharpness";
 
     /** 2.4 GHz channels (the C6 radios are 2.4 GHz only). */
@@ -258,9 +258,8 @@ public final class Completions {
                     "set src gain_ceiling <16-1023x16>",
                     "set src ae_target <2-235>",
                     "set src awb 0|1",
-                    "set src wb_r <1-4095x1024>",
-                    "set src wb_g <1-4095x1024>",
-                    "set src wb_b <1-4095x1024>",
+                    "set src wb_r <1-3999x1000>",
+                    "set src wb_b <1-3999x1000>",
                     "set src brightness <-128-127>",
                     "set src contrast <0-255,128:1x>",
                     "set src saturation <0-255,128:1x>",
