@@ -66,6 +66,19 @@ public final class EdgeTxOutputMapperTest {
     }
 
     @Test
+    public void recordSwitchOnCh11SurvivesHold() {
+        int[] p = pulses();
+        p[10] = 1024;
+        CrsfRcChannels ch = viaCrsf(p, CrsfChannelsFrame.STATUS_CH5_ARMING);
+        assertEquals(RoverRcFrame.FLAG_RECORD, EdgeTxOutputMapper.map(1, 0, ch, true).flags);
+        assertEquals(RoverRcFrame.FLAG_RECORD, EdgeTxOutputMapper.hold(1, 0, ch).flags);
+        p[10] = 0;
+        ch = viaCrsf(p, CrsfChannelsFrame.STATUS_CH5_ARMING);
+        assertEquals(0, EdgeTxOutputMapper.map(1, 0, ch, true).flags);
+        assertEquals(0, EdgeTxOutputMapper.hold(1, 0, ch).flags);
+    }
+
+    @Test
     public void holdFrameIsDisarmedAndCentred() {
         int[] p = pulses();
         p[2] = 512; // throttle

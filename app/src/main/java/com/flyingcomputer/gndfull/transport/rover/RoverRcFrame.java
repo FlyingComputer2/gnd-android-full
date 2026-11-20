@@ -15,6 +15,7 @@ public final class RoverRcFrame {
     public static final int FLAG_PHOTO = 0x02;
     public static final int FLAG_BINARY = 0x04;
     public static final int FLAG_PHOTO_HELD_IN_CLI = 0x08;
+    public static final int FLAG_RECORD = 0x10;
     public static final int MODE_NONE = 0xFF;
 
     public final int seq;

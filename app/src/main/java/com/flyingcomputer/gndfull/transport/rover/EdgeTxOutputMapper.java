@@ -17,7 +17,8 @@ import com.flyingcomputer.gndfull.crsf.CrsfRcChannels;
  * CH8       servo 3 (rover CH3, aux2)
  * CH9       one-shot JPEG (momentary)
  * CH10      binary GPIO (maintained)
- * CH11–16   unused
+ * CH11      record video to the rover's TF card (maintained; the rover acts on its edges)
+ * CH12–16   unused
  * </pre>
  */
 public final class EdgeTxOutputMapper {
@@ -30,6 +31,7 @@ public final class EdgeTxOutputMapper {
 
     public static final int CH_PHOTO = 9;
     public static final int CH_BINARY = 10;
+    public static final int CH_RECORD = 11;
     private static final int SWITCH_HIGH_US = 1750;
 
     /** rover_sample steering modes (param `mode`). */
@@ -49,6 +51,9 @@ public final class EdgeTxOutputMapper {
         }
         if (allowArm && ch.channel(CH_BINARY) >= SWITCH_HIGH_US) {
             flags |= RoverRcFrame.FLAG_BINARY;
+        }
+        if (allowArm && ch.channel(CH_RECORD) >= SWITCH_HIGH_US) {
+            flags |= RoverRcFrame.FLAG_RECORD;
         }
         int ch6 = ch.channel(CH_MODE);
         int mode = ch6 <= 1250 ? MODE_MANUAL : ch6 >= 1750 ? MODE_RATE : RoverRcFrame.MODE_NONE;
@@ -72,6 +77,10 @@ public final class EdgeTxOutputMapper {
         RoverRcFrame f = map(seq, timeUsLow32, ch, false);
         // Preserve the physical switch position across CLI exit without requesting a photo.
         int flags = ch.channel(CH_PHOTO) >= SWITCH_HIGH_US ? RoverRcFrame.FLAG_PHOTO_HELD_IN_CLI : 0;
+        // The record switch keeps its bit: entering CLI must not stop (or start) a recording.
+        if (ch.channel(CH_RECORD) >= SWITCH_HIGH_US) {
+            flags |= RoverRcFrame.FLAG_RECORD;
+        }
         return new RoverRcFrame(f.seq, f.timeUsLow32, f.src, flags, f.mode, 0, 0, f.aux, f.aux2);
     }
 
