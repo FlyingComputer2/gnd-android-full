@@ -7,13 +7,18 @@ import com.flyingcomputer.gndfull.R;
 import com.flyingcomputer.gndfull.control.ControlSession;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxKey;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxInputSnapshot;
-import com.flyingcomputer.gndfull.edgetx.Tx16InputMap;
+import com.flyingcomputer.gndfull.switches.SwitchConfig;
+import com.flyingcomputer.gndfull.switches.SwitchSlot;
 
 /** Binds sketch UI controls to {@link ControlSession}. */
 public final class EdgeTxUiWire {
     private final ControlSession control;
     private final int[] sticks = new int[4];
-    private final int[] switches = new int[8];
+    private final int[] switches = new int[EdgeTxInputSnapshot.SWITCH_COUNT];
+    private final int[] pots = new int[EdgeTxInputSnapshot.POT_COUNT];
+    private SwitchConfig switchConfig = SwitchConfig.defaults();
+    private int[] slotPositions = switchConfig.initialPositions();
+    private final SwitchStripView[] rows = new SwitchStripView[2];
     private Runnable onInputChanged;
 
     public EdgeTxUiWire(ControlSession control) {
@@ -63,15 +68,56 @@ public final class EdgeTxUiWire {
                 });
     }
 
-    public void wireSwitchRow(SwitchStripView row, int[] indexMap) {
-        row.setListener(
+    /** Binds strip {@code row} (0 upper, 1 lower) to slots {@code row*4 .. row*4+3}. */
+    public void wireSwitchRow(SwitchStripView view, int row) {
+        rows[row] = view;
+        int base = row * SwitchConfig.PER_ROW;
+        view.setListener(
                 (index, position) -> {
-                    if (!isInputActive()) {
-                        return;
+                    int slot = base + index;
+                    // A push released while input is blocked must still reach the pending
+                    // snapshot, or it would come back held when the menu closes.
+                    boolean release =
+                            position == 0 && switchConfig.slot(slot).type() == SwitchSlot.Type.PUSH;
+                    if (!release && !isInputActive()) {
+                        return false;
                     }
-                    switches[indexMap[index]] = position;
+                    slotPositions[slot] = position;
                     publish();
+                    return true;
                 });
+        view.setSlots(switchConfig.row(row), rowPositions(row));
+    }
+
+    public SwitchConfig switchConfig() {
+        return switchConfig;
+    }
+
+    /**
+     * New slot layout: changed slots go back to their initial position, unchanged ones keep
+     * theirs. Publishes the resulting EdgeTX switch / pot state.
+     */
+    public void setSwitchConfig(SwitchConfig config) {
+        int[] next = config.initialPositions();
+        for (int i = 0; i < SwitchConfig.SLOTS; i++) {
+            if (config.slot(i).equals(switchConfig.slot(i))) {
+                next[i] = slotPositions[i];
+            }
+        }
+        switchConfig = config;
+        slotPositions = next;
+        for (int r = 0; r < rows.length; r++) {
+            if (rows[r] != null) {
+                rows[r].setSlots(config.row(r), rowPositions(r));
+            }
+        }
+        publish();
+    }
+
+    private int[] rowPositions(int row) {
+        int[] p = new int[SwitchConfig.PER_ROW];
+        System.arraycopy(slotPositions, row * SwitchConfig.PER_ROW, p, 0, p.length);
+        return p;
     }
 
     /**
@@ -215,7 +261,8 @@ public final class EdgeTxUiWire {
     }
 
     private void publish() {
-        control.publishInput(new EdgeTxInputSnapshot(sticks, switches));
+        switchConfig.toInputs(slotPositions, switches, pots);
+        control.publishInput(new EdgeTxInputSnapshot(sticks, switches, pots));
         if (onInputChanged != null) {
             onInputChanged.run();
         }
