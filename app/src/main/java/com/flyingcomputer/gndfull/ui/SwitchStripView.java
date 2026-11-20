@@ -145,6 +145,20 @@ public final class SwitchStripView extends View {
         }
     }
 
+    /** Hidden mid-press (CLI mode, activity gone): the UP never arrives, so release here. */
+    @Override
+    public void onVisibilityAggregated(boolean isVisible) {
+        super.onVisibilityAggregated(isVisible);
+        if (!isVisible) {
+            for (int i = 0; i < TILES; i++) {
+                if (pushPointer[i] >= 0) {
+                    pushPointer[i] = -1;
+                    forceRelease(i);
+                }
+            }
+        }
+    }
+
     private boolean releasePush(int pointerId) {
         for (int i = 0; i < TILES; i++) {
             if (pushPointer[i] == pointerId) {
