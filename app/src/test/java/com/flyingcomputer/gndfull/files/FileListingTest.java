@@ -59,4 +59,26 @@ public class FileListingTest {
         FileListing.sort(l, FileListing.Column.MODIFIED, false);
         assertEquals(List.of("Adir", "zdir", "a.jpg", "b.txt", "C.conf"), names(l));
     }
+
+    @Test
+    public void sortBySize() {
+        List<FileListing.Entry> l = new ArrayList<>(List.of(
+                new FileListing.Entry("big", UdpfsWire.TYPE_FILE, 5000, 0),
+                d("dir", 0),
+                new FileListing.Entry("small", UdpfsWire.TYPE_FILE, 3, 0),
+                new FileListing.Entry("mid", UdpfsWire.TYPE_FILE, 700, 0)));
+        FileListing.sort(l, FileListing.Column.SIZE, true);
+        assertEquals(List.of("dir", "small", "mid", "big"), names(l));
+        FileListing.sort(l, FileListing.Column.SIZE, false);
+        assertEquals(List.of("dir", "big", "mid", "small"), names(l));
+    }
+
+    @Test
+    public void selectionSummary() {
+        assertEquals("0 selected", FileListing.selectionSummary(List.of()));
+        assertEquals("1 selected: 1 file 10 B", FileListing.selectionSummary(List.of(f("a", 0))));
+        assertEquals("3 selected: 2 files 20 B, 1 dir",
+                FileListing.selectionSummary(List.of(f("a", 0), d("x", 0), f("b", 0))));
+        assertEquals("2 selected: 2 dirs", FileListing.selectionSummary(List.of(d("x", 0), d("y", 0))));
+    }
 }

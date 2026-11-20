@@ -16,6 +16,7 @@ public final class FileListing {
     public enum Column {
         NAME,
         TYPE,
+        SIZE,
         MODIFIED
     }
 
@@ -82,6 +83,28 @@ public final class FileListing {
         return String.format(Locale.US, "%.1f MB", n / 1024.0 / 1024.0);
     }
 
+    /** "3 selected: 2 files 1.2 MB, 1 dir" for the selection bar. */
+    public static String selectionSummary(List<Entry> picked) {
+        int files = 0, dirs = 0;
+        long bytes = 0;
+        for (Entry e : picked) {
+            if (e.dir()) {
+                dirs++;
+            } else {
+                files++;
+                bytes += e.size();
+            }
+        }
+        StringBuilder b = new StringBuilder().append(picked.size()).append(" selected");
+        if (files > 0) {
+            b.append(": ").append(files).append(files == 1 ? " file " : " files ").append(size(bytes));
+        }
+        if (dirs > 0) {
+            b.append(files > 0 ? ", " : ": ").append(dirs).append(dirs == 1 ? " dir" : " dirs");
+        }
+        return b.toString();
+    }
+
     /** Directories first, then by column (ties by name); ascending or not. */
     public static void sort(List<Entry> list, Column by, boolean ascending) {
         Comparator<Entry> name = Comparator.comparing(Entry::name, String.CASE_INSENSITIVE_ORDER);
@@ -89,6 +112,7 @@ public final class FileListing {
                 switch (by) {
                     case NAME -> name;
                     case TYPE -> Comparator.comparing(FileListing::typeLabel).thenComparing(name);
+                    case SIZE -> Comparator.comparingLong(Entry::size).thenComparing(name);
                     case MODIFIED -> Comparator.comparingLong(Entry::mtime).thenComparing(name);
                 };
         if (!ascending) {
