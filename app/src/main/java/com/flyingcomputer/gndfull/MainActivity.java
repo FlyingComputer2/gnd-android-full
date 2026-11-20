@@ -31,6 +31,7 @@ import com.flyingcomputer.gndfull.control.ControlSession;
 import com.flyingcomputer.gndfull.control.DrivingMode;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapterFactory;
+import com.flyingcomputer.gndfull.files.FilesView;
 import com.flyingcomputer.gndfull.transport.UsbGroundSession;
 import com.flyingcomputer.gndfull.transport.rover.GroundLinkFrame;
 import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
@@ -50,6 +51,7 @@ import java.util.concurrent.RejectedExecutionException;
 public final class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final String TAG = "GndFull";
     private static final String USB_PERMISSION = "com.flyingcomputer.gndfull.USB_PERMISSION";
+    private static final int REQUEST_UPLOAD = 41;
 
     private final ExecutorService usbSetup = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -64,13 +66,15 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     private EdgeTxLcdView lcdView;
     private volatile boolean surfaceReady;
     private volatile int currentDevice = -1;
-    // RC-only views (LCD, switches, gimbals), hidden in CLI mode.
+    // RC-only views (LCD, switches, gimbals), hidden in CLI / FILES mode.
     private final List<View> rcViews = new ArrayList<>();
     private CliView cliView;
+    private FilesView filesView;
     private FrameLayout videoPane;
     private int videoHeightRc;
     private int videoHeightCli;
-    private boolean cliActive;
+    /** RC, CLI or FILES; anything but RC keeps driving blocked. */
+    private DrivingMode activeMode = DrivingMode.RC;
     /** Device id with a permission request in flight (no repeat prompts), or -1. */
     private int permissionPending = -1;
     private static final long USB_RETRY_MS = 2000;
@@ -225,18 +229,16 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                     @Override
                     public void onItemSelected(
                             android.widget.AdapterView<?> parent, View view, int position, long id) {
-                        if (position == DrivingMode.CLI.ordinal()) {
-                            setCliMode(true);
-                        } else if (position == DrivingMode.RC.ordinal()) {
-                            setCliMode(false);
+                        DrivingMode picked = DrivingMode.values()[position];
+                        if (picked != DrivingMode.PLN) {
+                            setMode(picked);
                         } else {
                             new AlertDialog.Builder(MainActivity.this)
                                     .setTitle("Not available")
                                     .setMessage("PLN is not implemented yet.")
                                     .setPositiveButton("OK", null)
                                     .show();
-                            mode.setSelection(
-                                    cliActive ? DrivingMode.CLI.ordinal() : DrivingMode.RC.ordinal());
+                            mode.setSelection(activeMode.ordinal());
                         }
                     }
 
@@ -370,6 +372,15 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
+        filesView = new FilesView(this);
+        // Rover files over the same udpfs console as the CLI's "rov fs".
+        filesView.setConsole(cliView.fs(), this::pickUpload);
+        filesView.setVisibility(View.GONE);
+        root.addView(
+                filesView,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
         setContentView(root);
         applySystemBarInsets(root);
         Log.i(
@@ -489,7 +500,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                                     this,
                                     edgeTxUi.switchConfig(),
                                     edgeTxUi::setSwitchConfig,
-                                    () -> control.setMenuOpen(cliActive));
+                                    () -> control.setMenuOpen(activeMode != DrivingMode.RC));
                         })
                 .setPositiveButton("Close", null)
                 .setNegativeButton(allFilesAccess() ? null : "Files access", (d, w) -> requestAllFilesAccess())
@@ -497,28 +508,33 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 .setOnDismissListener(
                         d -> {
                             if (!handedOff[0]) {
-                                control.setMenuOpen(cliActive);
+                                control.setMenuOpen(activeMode != DrivingMode.RC);
                             }
                         })
                 .show();
     }
 
     /**
-     * CLI replaces the RC controls below the video (video stays, smaller). Like
-     * the menu, it puts control in the non-driving state (disarm) while shown.
+     * CLI and FILES replace the RC controls below the video (video stays, smaller). Like
+     * the menu, they put control in the non-driving state (disarm) while shown.
      */
-    private void setCliMode(boolean on) {
-        if (on == cliActive) {
+    private void setMode(DrivingMode m) {
+        if (m == activeMode) {
             return;
         }
-        cliActive = on;
+        activeMode = m;
+        boolean on = m != DrivingMode.RC;
         // Driving blocked, but disarmed hold frames keep the rover link and telemetry alive.
         control.setLinkHold(on);
         control.setMenuOpen(on);
         for (View v : rcViews) {
             v.setVisibility(on ? View.GONE : View.VISIBLE);
         }
-        cliView.setVisibility(on ? View.VISIBLE : View.GONE);
+        cliView.setVisibility(m == DrivingMode.CLI ? View.VISIBLE : View.GONE);
+        filesView.setVisibility(m == DrivingMode.FILES ? View.VISIBLE : View.GONE);
+        if (m == DrivingMode.FILES) {
+            filesView.onShown();
+        }
         int h = on ? videoHeightCli : videoHeightRc;
         ViewGroup.LayoutParams lp = videoPane.getLayoutParams();
         lp.height = h;
@@ -526,14 +542,33 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         ViewGroup.LayoutParams sp = videoSurface.getLayoutParams();
         sp.height = h;
         videoSurface.setLayoutParams(sp);
-        if (!on) {
-            View focused = getCurrentFocus();
-            if (focused != null) {
-                ((android.view.inputmethod.InputMethodManager)
-                                getSystemService(INPUT_METHOD_SERVICE))
-                        .hideSoftInputFromWindow(focused.getWindowToken(), 0);
-                focused.clearFocus();
-            }
+        // The previous panel's keyboard goes with it.
+        View focused = getCurrentFocus();
+        if (focused != null) {
+            ((android.view.inputmethod.InputMethodManager)
+                            getSystemService(INPUT_METHOD_SERVICE))
+                    .hideSoftInputFromWindow(focused.getWindowToken(), 0);
+            focused.clearFocus();
+        }
+    }
+
+    /** FILES upload: any document; the result goes to the explorer's current directory. */
+    private void pickUpload() {
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        pick.addCategory(Intent.CATEGORY_OPENABLE);
+        pick.setType("*/*");
+        try {
+            startActivityForResult(pick, REQUEST_UPLOAD);
+        } catch (android.content.ActivityNotFoundException e) {
+            showStatus("No document picker");
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_UPLOAD && resultCode == RESULT_OK && data != null) {
+            filesView.onUploadPicked(data.getData());
         }
     }
 
