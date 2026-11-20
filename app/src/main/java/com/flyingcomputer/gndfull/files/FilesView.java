@@ -169,6 +169,7 @@ public final class FilesView extends LinearLayout {
         String p = FileListing.normalize(path);
         setStatus("listing " + p + " …", false);
         run(
+                "list " + p,
                 c -> {
                     List<FileListing.Entry> got = list(c, p);
                     ui.post(() -> show(p, got, pushHistory));
@@ -287,6 +288,7 @@ public final class FilesView extends LinearLayout {
     private void download(String path) {
         setStatus("download " + path + " …", false);
         run(
+                "download " + path,
                 c -> {
                     File dir = new File(fs.storageRoot(), AppStorage.SCP);
                     long t0 = System.nanoTime();
@@ -301,6 +303,7 @@ public final class FilesView extends LinearLayout {
     private void crc(String path, long size) {
         setStatus("crc32 " + path + " …", false);
         run(
+                "crc32 " + path,
                 c -> {
                     long crc = ScpConsole.crc(c, path);
                     String hex = String.format(Locale.US, "%08x", crc);
@@ -318,8 +321,15 @@ public final class FilesView extends LinearLayout {
 
     private void rename(FileListing.Entry e, String path) {
         prompt("rename", e.name(), name -> {
-            if (name.isEmpty() || name.contains("/") || name.equals(e.name())) {
-                setStatus(name.contains("/") ? "rename: a name, not a path (use move)" : "rename: unchanged", !name.equals(e.name()));
+            if (name.isEmpty() || name.contains("/") || name.equals(".") || name.equals("..")
+                    || name.equals(e.name())) {
+                if (name.contains("/") || name.equals(".") || name.equals("..")) {
+                    setStatus("rename: a name, not a path (use move)", true);
+                } else if (name.isEmpty()) {
+                    setStatus("rename: empty name", true);
+                } else {
+                    setStatus("rename: unchanged", false);
+                }
                 return;
             }
             String to = FileListing.child(cwd, name);
@@ -382,12 +392,32 @@ public final class FilesView extends LinearLayout {
             return;
         }
         String dir = cwd;
+        String name = displayName(getContext(), uri);
+        for (FileListing.Entry e : entries) {
+            if (e.name().equals(name)) {
+                if (e.dir()) {
+                    setStatus("upload: " + name + "/ is a directory here", true);
+                    return;
+                }
+                new AlertDialog.Builder(getContext())
+                        .setTitle("replace")
+                        .setMessage(FileListing.child(dir, name) + " exists (" + FileListing.size(e.size()) + "). Replace it?")
+                        .setPositiveButton("replace", (d, w) -> upload(uri, dir, name))
+                        .setNegativeButton("cancel", null)
+                        .show();
+                return;
+            }
+        }
+        upload(uri, dir, name);
+    }
+
+    private void upload(Uri uri, String dir, String name) {
         Context app = getContext().getApplicationContext();
-        setStatus("upload to " + dir + " … (waiting for the ground link)", false);
+        setStatus("upload " + name + " to " + dir + " … (waiting for the ground link)", false);
         run(
+                "upload " + name,
                 UPLOAD_AWAIT_MS,
                 c -> {
-                    String name = displayName(app, uri);
                     File tmpDir = new File(app.getCacheDir(), "upload");
                     if (!tmpDir.isDirectory() && !tmpDir.mkdirs()) {
                         throw new IOException("cannot create " + tmpDir);
@@ -436,10 +466,13 @@ public final class FilesView extends LinearLayout {
         if (name == null || name.isEmpty()) {
             name = uri.getLastPathSegment();
         }
-        if (name == null || name.isEmpty()) {
+        if (name != null) {
+            name = name.replace('/', '_');
+        }
+        if (name == null || name.isEmpty() || name.equals(".") || name.equals("..")) {
             name = "upload.bin";
         }
-        return name.replace('/', '_');
+        return name;
     }
 
     // ---- plumbing ----
@@ -449,6 +482,7 @@ public final class FilesView extends LinearLayout {
         String dir = cwd;
         setStatus(what + " …", false);
         run(
+                what,
                 c -> {
                     change.run(c);
                     List<FileListing.Entry> got = list(c, dir);
@@ -461,17 +495,18 @@ public final class FilesView extends LinearLayout {
                 });
     }
 
-    private void run(ScpConsole.Job job) {
-        run(0, job);
+    /** what names the operation in an error ("! delete /sdcard/x: ENOTEMPTY"). */
+    private void run(String what, ScpConsole.Job job) {
+        run(what, 0, job);
     }
 
-    private void run(long awaitOpenMs, ScpConsole.Job job) {
+    private void run(String what, long awaitOpenMs, ScpConsole.Job job) {
         ScpConsole c = fs;
         if (c == null) {
             setStatus("not connected", true);
             return;
         }
-        if (!c.submitJob(job, e -> ui.post(() -> setStatus("! " + e.getMessage(), true)), awaitOpenMs)) {
+        if (!c.submitJob(job, e -> ui.post(() -> setStatus("! " + what + ": " + e.getMessage(), true)), awaitOpenMs)) {
             setStatus("busy: one operation at a time (also rov fs in the CLI)", true);
         }
     }
