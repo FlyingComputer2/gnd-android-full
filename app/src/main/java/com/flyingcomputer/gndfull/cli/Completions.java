@@ -206,6 +206,24 @@ public final class Completions {
     static final String CHANNELS = "1|2|3|4|5|6|7|8|9|10|11|12|13|14";
 
     /** winject-l3 console (ConsoleCommands k_help_text), long and short command names. */
+    /** The "rov fs" console (ScpConsole). */
+    public static final Grammar SCP =
+            new Grammar(
+                    "help",
+                    "ls -l|/sdcard|/sdcard/photo|/sdcard/rec|/winject",
+                    "stat <remote>",
+                    "get -r|/sdcard/photo/|/sdcard/rec/|/winject/winject.conf",
+                    "put -r|scp/|edgetx/sd/",
+                    "rm <remote>",
+                    "mkdir <remote>",
+                    "rmdir <remote>",
+                    "mv <remote> <newremote>",
+                    "crc <remote>",
+                    "cat <remote>",
+                    "info",
+                    "list_open",
+                    "lls scp|edgetx/sd");
+
     public static final Grammar L3 =
             new Grammar(
                     "help|?|h",

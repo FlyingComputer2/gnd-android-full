@@ -28,6 +28,10 @@ public class CliLogicTest {
         assertEquals(2400, ConsoleTarget.GND_L3.port);
         assertEquals(Completions.VSTREAMER, ConsoleTarget.ROV_VS.grammar);
         assertEquals(Completions.L3, ConsoleTarget.GND_L3.grammar);
+        assertEquals(2440, ConsoleTarget.ROV_FS.port);
+        assertTrue(ConsoleTarget.ROV_FS.local);
+        assertTrue(!ConsoleTarget.ROV_VS.local);
+        assertEquals(Completions.SCP, ConsoleTarget.ROV_FS.grammar);
     }
 
     @Test
