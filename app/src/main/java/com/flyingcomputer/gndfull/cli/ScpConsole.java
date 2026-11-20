@@ -48,6 +48,9 @@ public final class ScpConsole {
     private final ExecutorService worker =
             Executors.newSingleThreadExecutor(r -> new Thread(r, "rov-fs"));
     private final AtomicBoolean busy = new AtomicBoolean();
+    /** The storage root for the command running (worker thread only); resolved once per command,
+     * since resolving it probes the directory with a write. */
+    private File cur;
 
     public ScpConsole(Link link, Supplier<File> root, UdpfsClient.Config cfg) {
         this.link = link;
@@ -77,6 +80,7 @@ public final class ScpConsole {
 
     /** Runs line on the calling thread. */
     public void run(String line, Consumer<String> out) {
+        cur = root.get();
         List<String> a = new ArrayList<>(Arrays.asList(line.trim().split("\\s+")));
         if (a.isEmpty() || a.get(0).isEmpty()) {
             return;
@@ -405,7 +409,7 @@ public final class ScpConsole {
 
     /** A local path under the storage root; ".." is refused. */
     File local(String rel) throws IOException {
-        File r = root.get();
+        File r = cur != null ? cur : root.get();
         if (rel.isEmpty() || rel.equals(".")) {
             return r;
         }
@@ -418,7 +422,7 @@ public final class ScpConsole {
     }
 
     private String rel(File f) {
-        String r = root.get().getAbsolutePath();
+        String r = (cur != null ? cur : root.get()).getAbsolutePath();
         String p = f.getAbsolutePath();
         return p.startsWith(r + "/") ? p.substring(r.length() + 1) : p;
     }
