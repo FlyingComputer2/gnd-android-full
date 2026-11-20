@@ -48,6 +48,8 @@ public final class CliView extends LinearLayout {
     private final float density;
     private volatile int focus; // read by the completion filter thread
     private CliUsbHandler link;
+    private com.flyingcomputer.gndfull.transport.CliUsbTransport fsLink;
+    private ScpConsole fs;
 
     private final class Pane {
         final ConsoleTarget target;
@@ -222,6 +224,14 @@ public final class CliView extends LinearLayout {
     public void setLink(CliUsbHandler link) {
         this.link = link;
         link.setListener((port, text) -> ui.post(() -> onReply(port, text)));
+        // "rov fs": udpfs datagrams on the same channel, port 2440 (binary).
+        fsLink = new com.flyingcomputer.gndfull.transport.CliUsbTransport(
+                link, com.flyingcomputer.gndfull.transport.CliUsbTransport.UDPFS_PORT);
+        Context app = getContext().getApplicationContext();
+        fs = new ScpConsole(
+                fsLink,
+                () -> com.flyingcomputer.gndfull.AppStorage.root(app),
+                new com.flyingcomputer.gndfull.udpfs.UdpfsClient.Config());
     }
 
     private void onReply(int port, String text) {
@@ -346,6 +356,15 @@ public final class CliView extends LinearLayout {
         Pane p = panes[focus];
         p.history.add(line);
         p.print("> " + line);
+        if (p.target.local) {
+            ScpConsole c = fs;
+            if (c == null) {
+                p.print("! not connected");
+                return;
+            }
+            c.submit(line, s -> ui.post(() -> p.print(s)));
+            return;
+        }
         CliUsbHandler l = link;
         if (l == null || !l.isOpen()) {
             p.print("! USB CLI not open: connect the ground (needs gnd-esp32p4 with USB channel 4)");
@@ -366,6 +385,12 @@ public final class CliView extends LinearLayout {
         }
         if (link != null) {
             link.setListener(null);
+        }
+        if (fsLink != null) {
+            fsLink.detach();
+        }
+        if (fs != null) {
+            fs.shutdown();
         }
     }
 

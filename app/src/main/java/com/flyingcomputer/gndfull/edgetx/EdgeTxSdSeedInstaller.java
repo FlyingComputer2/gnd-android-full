@@ -25,6 +25,7 @@ public final class EdgeTxSdSeedInstaller {
     private static final String TAG = "EdgeTxSdSeed";
     static final String ASSET_ZIP = "edgetx/edgetx-sd-seed.zip";
     static final String SD_SEED_VERSION = "2.12.3";
+    /** Under the storage root (AppStorage): Download/FlyingComputer/edgetx/sd. */
     static final String PERSIST_RELATIVE = "FlyingComputer/edgetx/sd";
     private static final String PRIVATE_RELATIVE = "edgetx/sd";
 

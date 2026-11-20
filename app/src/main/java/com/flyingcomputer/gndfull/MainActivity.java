@@ -441,6 +441,26 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         root.requestApplyInsets();
     }
 
+    /** "All files access": the storage root in Download/FlyingComputer, visible to the user. */
+    private boolean allFilesAccess() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.R
+                || android.os.Environment.isExternalStorageManager();
+    }
+
+    private void requestAllFilesAccess() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return;
+        }
+        try {
+            startActivity(new android.content.Intent(
+                    android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    android.net.Uri.parse("package:" + getPackageName())));
+        } catch (android.content.ActivityNotFoundException e) {
+            startActivity(new android.content.Intent(
+                    android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+        }
+    }
+
     private void openMenu() {
         control.setMenuOpen(true);
         boolean[] handedOff = new boolean[1];
@@ -454,9 +474,13 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                                 + "\nUSB ch0 rtp-h264-v1 video, ch2 rc-v1 MSP (rover_sample 0x4201).\n"
                                 + "CLI: USB ch4 cli-v1 ("
                                 + (usbSession.cliUsb().isOpen() ? "open" : "not open")
-                                + "; rov vs 5092, rov l3 2410, gnd l3 2400 on the ground).\n"
+                                + "; rov vs 5092, rov l3 2410, gnd l3 2400, rov fs 2440 on the ground).\n"
                                 + "EdgeTX: "
-                                + control.adapter().status().detail())
+                                + control.adapter().status().detail()
+                                + "\nFiles: "
+                                + AppStorage.root(this).getAbsolutePath()
+                                + " (edgetx/sd, scp)"
+                                + (allFilesAccess() ? "" : "\nGrant Files access to see them in Files / on a PC."))
                 .setNeutralButton(
                         "Switches",
                         (d, w) -> {
@@ -468,6 +492,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                                     () -> control.setMenuOpen(cliActive));
                         })
                 .setPositiveButton("Close", null)
+                .setNegativeButton(allFilesAccess() ? null : "Files access", (d, w) -> requestAllFilesAccess())
                 // Driving stays blocked while the CLI (or the switch editor) is shown.
                 .setOnDismissListener(
                         d -> {
