@@ -34,15 +34,18 @@ import java.io.OutputStream;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * FILES mode: the rover's files over udpfs (ground 2440, the same console as the CLI's "rov fs").
- * Toolbar [^] parent, [<] back, path, [go], [upload]; columns file / type / modified, tap a header
- * to sort; tap a directory to open it, long-press an entry for download (to scp/), crc32, rename,
- * move, delete. One operation at a time, shared with "rov fs". UI-thread only; the work runs on
- * the console's worker.
+ * Toolbar [^] parent, [<] back, path, [go], [select], [upload]; columns file / type / size /
+ * modified, tap a header to sort; tap a directory to open it, long-press an entry for select,
+ * download (to scp/), crc32, rename, move, delete. Select mode: tap entries to (de)select, then
+ * download or delete them all (one job, per-entry errors listed). One operation at a time, shared
+ * with "rov fs". UI-thread only; the work runs on the console's worker.
  */
 public final class FilesView extends LinearLayout {
     /** The activity's side: a document picker for upload, answered with {@link #onUploadPicked}. */
@@ -56,6 +59,9 @@ public final class FilesView extends LinearLayout {
     private static final int DIR = 0xff4fc3f7;
     private static final int HEADER_BG = 0xff1b252b;
     private static final int ERR = 0xffff8a80;
+    private static final int SEL_BG = 0xff22394a;
+    /** Names listed in the multi-delete confirmation before "… and N more". */
+    private static final int CONFIRM_NAMES = 12;
     private static final String START = "/sdcard";
     /** The picker backgrounds the app, which drops the USB link until it resumes. */
     private static final long UPLOAD_AWAIT_MS = 15000;
@@ -68,6 +74,11 @@ public final class FilesView extends LinearLayout {
     private final Rows adapter = new Rows();
     private final Deque<String> back = new ArrayDeque<>();
     private final List<FileListing.Entry> entries = new ArrayList<>();
+    /** Names selected in cwd (select mode); cleared when the directory changes. */
+    private final Set<String> selected = new HashSet<>();
+    private final LinearLayout selBar;
+    private final TextView selCount;
+    private boolean selecting;
     private ScpConsole fs;
     private Host host;
     private String cwd = START;
@@ -102,8 +113,25 @@ public final class FilesView extends LinearLayout {
                 });
         bar.addView(pathInput, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         bar.addView(button(context, "go", v -> goTyped()));
+        bar.addView(button(context, "select", v -> setSelecting(!selecting)));
         bar.addView(button(context, "upload", v -> upload()));
         addView(bar, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        selBar = new LinearLayout(context);
+        selBar.setOrientation(HORIZONTAL);
+        selBar.setGravity(Gravity.CENTER_VERTICAL);
+        selBar.setBackgroundColor(SEL_BG);
+        selBar.setPadding(dp(2), 0, dp(2), 0);
+        selBar.addView(button(context, "all", v -> selectAll()));
+        selCount = cell(context, "", FG);
+        selCount.setEllipsize(TextUtils.TruncateAt.END);
+        selCount.setPadding(dp(6), 0, dp(6), 0);
+        selBar.addView(selCount, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        selBar.addView(button(context, "download", v -> downloadSelected()));
+        selBar.addView(button(context, "delete", v -> deleteSelected()));
+        selBar.addView(button(context, "done", v -> setSelecting(false)));
+        selBar.setVisibility(GONE);
+        addView(selBar, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         LinearLayout head = new LinearLayout(context);
         head.setOrientation(HORIZONTAL);
@@ -113,6 +141,10 @@ public final class FilesView extends LinearLayout {
             TextView h = cell(context, "", DIM);
             h.setTypeface(Typeface.DEFAULT_BOLD);
             h.setOnClickListener(v -> sortBy(c));
+            if (c == FileListing.Column.SIZE) {
+                h.setGravity(Gravity.END);
+                h.setPadding(0, 0, dp(10), 0);
+            }
             headers[c.ordinal()] = h;
             head.addView(h, columnParams(c));
         }
@@ -183,12 +215,20 @@ public final class FilesView extends LinearLayout {
             back.pop();
         }
         loaded = true;
+        if (!path.equals(cwd)) {
+            selected.clear();
+        }
         cwd = path;
         pathInput.setText(path);
         entries.clear();
         entries.addAll(got);
         FileListing.sort(entries, sortBy, ascending);
-        adapter.notifyDataSetChanged();
+        Set<String> names = new HashSet<>();
+        for (FileListing.Entry e : got) {
+            names.add(e.name());
+        }
+        selected.retainAll(names);
+        updateSelection();
         setStatus(path + "  " + got.size() + " entries", false);
     }
 
@@ -219,7 +259,8 @@ public final class FilesView extends LinearLayout {
             ascending = !ascending;
         } else {
             sortBy = c;
-            ascending = c != FileListing.Column.MODIFIED; // newest first
+            // newest / largest first
+            ascending = c != FileListing.Column.MODIFIED && c != FileListing.Column.SIZE;
         }
         FileListing.sort(entries, sortBy, ascending);
         adapter.notifyDataSetChanged();
@@ -227,7 +268,7 @@ public final class FilesView extends LinearLayout {
     }
 
     private void updateHeaders() {
-        String[] names = {"file", "type", "modified"};
+        String[] names = {"file", "type", "size", "modified"};
         for (FileListing.Column c : FileListing.Column.values()) {
             headers[c.ordinal()].setText(
                     names[c.ordinal()] + (c == sortBy ? (ascending ? " ▲" : " ▼") : ""));
@@ -243,6 +284,8 @@ public final class FilesView extends LinearLayout {
             open(FileListing.parent(cwd), true);
         } else if (pos == ROW_SELF) {
             open(cwd, false);
+        } else if (selecting) {
+            toggle(entries.get(pos - FIRST_ENTRY).name());
         } else {
             FileListing.Entry e = entries.get(pos - FIRST_ENTRY);
             if (e.dir()) {
@@ -258,10 +301,19 @@ public final class FilesView extends LinearLayout {
             return false;
         }
         FileListing.Entry e = entries.get(pos - FIRST_ENTRY);
+        if (selecting) {
+            toggle(e.name());
+            return true;
+        }
         String path = FileListing.child(cwd, e.name());
         boolean top = cwd.equals("/");
         List<String> labels = new ArrayList<>();
         List<Runnable> actions = new ArrayList<>();
+        labels.add("select");
+        actions.add(() -> {
+            selected.add(e.name());
+            setSelecting(true);
+        });
         labels.add(e.dir() ? "download (all)" : "download");
         actions.add(() -> download(path));
         if (!e.dir()) {
@@ -371,6 +423,165 @@ public final class FilesView extends LinearLayout {
                     }
                 }))
                 .setNegativeButton("cancel", null)
+                .show();
+    }
+
+    // ---- multi-select ----
+
+    private void setSelecting(boolean on) {
+        selecting = on;
+        if (!on) {
+            selected.clear();
+        }
+        updateSelection();
+    }
+
+    private void toggle(String name) {
+        if (!selected.remove(name)) {
+            selected.add(name);
+        }
+        updateSelection();
+    }
+
+    /** Selects every entry, or none when all are already selected. */
+    private void selectAll() {
+        if (selected.size() == entries.size()) {
+            selected.clear();
+        } else {
+            for (FileListing.Entry e : entries) {
+                selected.add(e.name());
+            }
+        }
+        updateSelection();
+    }
+
+    /** The selected entries in display order. */
+    private List<FileListing.Entry> picked() {
+        List<FileListing.Entry> out = new ArrayList<>();
+        for (FileListing.Entry e : entries) {
+            if (selected.contains(e.name())) {
+                out.add(e);
+            }
+        }
+        return out;
+    }
+
+    private void updateSelection() {
+        selBar.setVisibility(selecting ? VISIBLE : GONE);
+        selCount.setText(FileListing.selectionSummary(picked()));
+        adapter.notifyDataSetChanged();
+    }
+
+    private void downloadSelected() {
+        List<FileListing.Entry> pick = picked();
+        if (pick.isEmpty()) {
+            setStatus("download: nothing selected", true);
+            return;
+        }
+        String dir = cwd;
+        int n = pick.size();
+        setStatus("download " + n + " entries …", false);
+        run(
+                "download " + n + " entries",
+                c -> {
+                    File into = new File(fs.storageRoot(), AppStorage.SCP);
+                    List<String> failed = new ArrayList<>();
+                    long bytes = 0;
+                    long t0 = System.nanoTime();
+                    for (int i = 0; i < n; i++) {
+                        String name = pick.get(i).name();
+                        String tag = "[" + (i + 1) + "/" + n + "] ";
+                        try {
+                            bytes += fs.getInto(c, FileListing.child(dir, name), into,
+                                    line -> ui.post(() -> setStatus(tag + line, false)));
+                        } catch (UdpfsException x) { // this entry only; a link error ends the job
+                            failed.add(name + ": " + x.getMessage());
+                        }
+                    }
+                    double s = Math.max((System.nanoTime() - t0) / 1e9, 0.001);
+                    String msg = String.format(Locale.US, "downloaded %d/%d to %s/ (%s, %.1f KB/s, CRC ok)",
+                            n - failed.size(), n, AppStorage.SCP, FileListing.size(bytes), bytes / 1024.0 / s);
+                    ui.post(() -> report(msg, failed));
+                });
+    }
+
+    private void deleteSelected() {
+        List<FileListing.Entry> pick = picked();
+        if (pick.isEmpty()) {
+            setStatus("delete: nothing selected", true);
+            return;
+        }
+        if (cwd.equals("/")) { // the filesystems themselves stay put
+            setStatus("delete: not at /", true);
+            return;
+        }
+        String dir = cwd;
+        StringBuilder msg = new StringBuilder("In ").append(dir).append(":\n");
+        boolean dirs = false;
+        for (int i = 0; i < pick.size(); i++) {
+            FileListing.Entry e = pick.get(i);
+            dirs |= e.dir();
+            if (i < CONFIRM_NAMES) {
+                msg.append("\n").append(e.dir() ? e.name() + "/" : e.name());
+            }
+        }
+        if (pick.size() > CONFIRM_NAMES) {
+            msg.append("\n… and ").append(pick.size() - CONFIRM_NAMES).append(" more");
+        }
+        if (dirs) {
+            msg.append("\n\nDirectories must be empty.");
+        }
+        int n = pick.size();
+        new AlertDialog.Builder(getContext())
+                .setTitle("delete " + FileListing.selectionSummary(pick).replace(" selected", n == 1 ? " entry" : " entries"))
+                .setMessage(msg)
+                .setPositiveButton("delete", (d, w) -> {
+                    setStatus("delete " + n + " entries …", false);
+                    run("delete " + n + " entries", c -> {
+                        List<String> failed = new ArrayList<>();
+                        for (int i = 0; i < n; i++) {
+                            FileListing.Entry e = pick.get(i);
+                            String path = FileListing.child(dir, e.name());
+                            String tag = "[" + (i + 1) + "/" + n + "] delete " + path;
+                            ui.post(() -> setStatus(tag, false));
+                            try {
+                                if (e.dir()) {
+                                    c.rmdir(path);
+                                } else {
+                                    c.unlink(path);
+                                }
+                            } catch (UdpfsException x) { // this entry only; a link error ends the job
+                                failed.add(e.name() + ": " + x.getMessage());
+                            }
+                        }
+                        List<FileListing.Entry> got = list(c, dir);
+                        String done = "deleted " + (n - failed.size()) + "/" + n;
+                        ui.post(() -> {
+                            if (dir.equals(cwd)) {
+                                show(dir, got, false);
+                            }
+                            if (failed.isEmpty() && selected.isEmpty()) {
+                                setSelecting(false);
+                            }
+                            report(done, failed);
+                        });
+                    });
+                })
+                .setNegativeButton("cancel", null)
+                .show();
+    }
+
+    /** Status line, plus a dialog listing the entries that failed. */
+    private void report(String msg, List<String> failed) {
+        if (failed.isEmpty()) {
+            setStatus(msg, false);
+            return;
+        }
+        setStatus(msg + "; " + failed.size() + " failed", true);
+        new AlertDialog.Builder(getContext())
+                .setTitle(failed.size() + " failed")
+                .setMessage(String.join("\n", failed))
+                .setPositiveButton("OK", null)
                 .show();
     }
 
@@ -566,7 +777,8 @@ public final class FilesView extends LinearLayout {
     private LayoutParams columnParams(FileListing.Column c) {
         return switch (c) {
             case NAME -> new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            case TYPE -> new LayoutParams(dp(64), ViewGroup.LayoutParams.WRAP_CONTENT);
+            case TYPE -> new LayoutParams(dp(56), ViewGroup.LayoutParams.WRAP_CONTENT);
+            case SIZE -> new LayoutParams(dp(72), ViewGroup.LayoutParams.WRAP_CONTENT);
             case MODIFIED -> new LayoutParams(dp(124), ViewGroup.LayoutParams.WRAP_CONTENT);
         };
     }
@@ -600,26 +812,37 @@ public final class FilesView extends LinearLayout {
                     if (c != FileListing.Column.NAME) {
                         t.setTextSize(12f);
                     }
+                    if (c == FileListing.Column.SIZE) {
+                        t.setGravity(Gravity.END);
+                        t.setPadding(0, 0, dp(10), 0);
+                    }
                     row.addView(t, columnParams(c));
                 }
             }
-            TextView name = (TextView) row.getChildAt(0);
-            TextView type = (TextView) row.getChildAt(1);
-            TextView mod = (TextView) row.getChildAt(2);
+            TextView name = (TextView) row.getChildAt(FileListing.Column.NAME.ordinal());
+            TextView type = (TextView) row.getChildAt(FileListing.Column.TYPE.ordinal());
+            TextView size = (TextView) row.getChildAt(FileListing.Column.SIZE.ordinal());
+            TextView mod = (TextView) row.getChildAt(FileListing.Column.MODIFIED.ordinal());
+            type.setTextColor(DIM);
+            size.setTextColor(DIM);
+            mod.setTextColor(DIM);
             if (pos < FIRST_ENTRY) {
+                row.setBackgroundColor(0);
                 name.setText(pos == ROW_UP ? ".." : ".");
                 name.setTextColor(DIR);
                 type.setText("dir");
-                type.setTextColor(DIM);
+                size.setText("");
                 mod.setText("");
             } else {
                 FileListing.Entry e = entries.get(pos - FIRST_ENTRY);
-                name.setText(e.dir() ? e.name() + "/" : e.name());
+                boolean sel = selected.contains(e.name());
+                row.setBackgroundColor(sel ? SEL_BG : 0);
+                String label = e.dir() ? e.name() + "/" : e.name();
+                name.setText(selecting ? (sel ? "☑ " : "☐ ") + label : label);
                 name.setTextColor(e.dir() ? DIR : FG);
                 type.setText(FileListing.typeLabel(e));
-                type.setTextColor(DIM);
+                size.setText(e.dir() ? "" : FileListing.size(e.size()));
                 mod.setText(FileListing.modified(e.mtime()));
-                mod.setTextColor(DIM);
             }
             return row;
         }
