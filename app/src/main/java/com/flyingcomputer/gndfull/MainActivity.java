@@ -31,7 +31,6 @@ import com.flyingcomputer.gndfull.control.ControlSession;
 import com.flyingcomputer.gndfull.control.DrivingMode;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapter;
 import com.flyingcomputer.gndfull.edgetx.EdgeTxAdapterFactory;
-import com.flyingcomputer.gndfull.edgetx.Tx16InputMap;
 import com.flyingcomputer.gndfull.transport.UsbGroundSession;
 import com.flyingcomputer.gndfull.transport.rover.GroundLinkFrame;
 import com.flyingcomputer.gndfull.transport.rover.RoverTelemFrame;
@@ -39,6 +38,7 @@ import com.flyingcomputer.gndfull.ui.EdgeTxLcdView;
 import com.flyingcomputer.gndfull.ui.EdgeTxUiWire;
 import com.flyingcomputer.gndfull.ui.OsdPresenter;
 import com.flyingcomputer.gndfull.ui.StickClusterView;
+import com.flyingcomputer.gndfull.ui.SwitchConfigDialog;
 import com.flyingcomputer.gndfull.ui.SwitchStripView;
 import com.flyingcomputer.gndfull.video.VideoMetrics;
 import java.util.ArrayList;
@@ -71,6 +71,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     private int videoHeightRc;
     private int videoHeightCli;
     private boolean cliActive;
+    /** Device id with a permission request in flight (no repeat prompts), or -1. */
+    private int permissionPending = -1;
+    private static final long USB_RETRY_MS = 2000;
+    private final Runnable usbRetry = this::discoverUsb;
 
     private final Runnable lcdRefresh =
             new Runnable() {
@@ -120,9 +124,12 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                                 && device != null) {
                             connectUsb(device);
                         } else {
-                            showStatus("USB permission denied");
+                            showStatus("USB permission denied — replug the ground to retry");
                         }
+                        permissionPending = -1;
                     } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(intent.getAction())) {
+                        permissionPending = -1;
+                        ui.removeCallbacks(usbRetry);
                         if (device != null && device.getDeviceId() == currentDevice) {
                             submit(
                                     () -> {
@@ -165,6 +172,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                                         () -> {
                                             disconnectUsb();
                                             showStatus("USB error: " + error.getMessage());
+                                            ui.post(MainActivity.this::scheduleUsbRetry);
                                         });
                             }
 
@@ -320,8 +328,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         SwitchStripView upper = new SwitchStripView(this, null);
-        upper.setLabels(new String[] {"SE", "SF", "SG", "SH"});
-        edgeTxUi.wireSwitchRow(upper, Tx16InputMap.UPPER_SWITCH_INDICES);
+        edgeTxUi.wireSwitchRow(upper, 0);
         rcViews.add(upper);
         root.addView(
                 upper,
@@ -330,8 +337,9 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                         (int) (getResources().getDisplayMetrics().density * 34)));
 
         SwitchStripView lower = new SwitchStripView(this, null);
-        lower.setLabels(new String[] {"SD", "SC", "SB", "SA"});
-        edgeTxUi.wireSwitchRow(lower, Tx16InputMap.LOWER_SWITCH_INDICES);
+        edgeTxUi.wireSwitchRow(lower, 1);
+        // Saved slot layout (Menu → Switches); also publishes the initial switch state.
+        edgeTxUi.setSwitchConfig(SwitchConfigDialog.load(this));
         rcViews.add(lower);
         root.addView(
                 lower,
@@ -435,19 +443,38 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
     private void openMenu() {
         control.setMenuOpen(true);
+        boolean[] handedOff = new boolean[1];
         new AlertDialog.Builder(this)
                 .setTitle("Connection & EdgeTX")
                 .setMessage(
-                        "USB ch0 rtp-h264-v1 video, ch2 rc-v1 MSP (rover_sample 0x4201).\n"
+                        "USB: "
+                                + (currentDevice >= 0
+                                        ? "ground connected"
+                                        : "waiting for the ground (connects when plugged)")
+                                + "\nUSB ch0 rtp-h264-v1 video, ch2 rc-v1 MSP (rover_sample 0x4201).\n"
                                 + "CLI: USB ch4 cli-v1 ("
                                 + (usbSession.cliUsb().isOpen() ? "open" : "not open")
                                 + "; rov vs 5092, rov l3 2410, gnd l3 2400 on the ground).\n"
                                 + "EdgeTX: "
                                 + control.adapter().status().detail())
-                .setNeutralButton("Connect USB", (d, w) -> discoverUsb())
+                .setNeutralButton(
+                        "Switches",
+                        (d, w) -> {
+                            handedOff[0] = true;
+                            SwitchConfigDialog.show(
+                                    this,
+                                    edgeTxUi.switchConfig(),
+                                    edgeTxUi::setSwitchConfig,
+                                    () -> control.setMenuOpen(cliActive));
+                        })
                 .setPositiveButton("Close", null)
-                // Driving stays blocked while the CLI is shown.
-                .setOnDismissListener(d -> control.setMenuOpen(cliActive))
+                // Driving stays blocked while the CLI (or the switch editor) is shown.
+                .setOnDismissListener(
+                        d -> {
+                            if (!handedOff[0]) {
+                                control.setMenuOpen(cliActive);
+                            }
+                        })
                 .show();
     }
 
@@ -513,15 +540,21 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         Log.i(TAG, text);
     }
 
+    /** Connects to the ground P4 whenever it is plugged in; no menu action needed. */
     private void discoverUsb() {
+        ui.removeCallbacks(usbRetry);
         if (!surfaceReady) {
             return;
         }
         for (UsbDevice device : usbManager.getDeviceList().values()) {
             if (device.getVendorId() == 0x303a && device.getProductId() == 0x4001) {
+                if (device.getDeviceId() == currentDevice) {
+                    return;
+                }
                 if (usbManager.hasPermission(device)) {
                     connectUsb(device);
-                } else {
+                } else if (permissionPending != device.getDeviceId()) {
+                    permissionPending = device.getDeviceId();
                     usbManager.requestPermission(
                             device,
                             android.app.PendingIntent.getBroadcast(
@@ -536,9 +569,29 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         showStatus("P4 not found — use High Speed USB, not CH340");
     }
 
+    /** After a USB error the ground may still be plugged: try again shortly. */
+    private void scheduleUsbRetry() {
+        ui.removeCallbacks(usbRetry);
+        ui.postDelayed(usbRetry, USB_RETRY_MS);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        // singleTask: a USB attach while running lands here (permission comes with the intent).
+        if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(intent.getAction())) {
+            discoverUsb();
+        }
+    }
+
     private void connectUsb(UsbDevice device) {
         submit(
                 () -> {
+                    // Attach broadcast and onNewIntent can both fire for one plug-in.
+                    if (device.getDeviceId() == currentDevice) {
+                        return;
+                    }
                     disconnectUsb();
                     if (!surfaceReady) {
                         return;
@@ -550,6 +603,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                     } catch (Exception e) {
                         disconnectUsb();
                         showStatus("Connection failed: " + e.getMessage());
+                        ui.post(this::scheduleUsbRetry);
                     }
                 });
     }
@@ -580,6 +634,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     public void onDestroy() {
         ui.removeCallbacks(lcdRefresh);
         ui.removeCallbacks(osdRefresh);
+        ui.removeCallbacks(usbRetry);
         unregisterReceiver(usbEvents);
         if (cliView != null) {
             cliView.detach();

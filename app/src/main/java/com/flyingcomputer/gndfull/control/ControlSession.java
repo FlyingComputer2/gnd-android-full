@@ -106,6 +106,11 @@ public final class ControlSession implements AutoCloseable {
                     try {
                         if (on) {
                             adapter.radioPowerOn();
+                            // EdgeTX boots with all switches up; match the on-screen tiles.
+                            if (!menuBlocksDriving) {
+                                adapter.submitInput(pending.get());
+                                refreshOutputs();
+                            }
                         } else {
                             adapter.radioPowerOff();
                             publishNeutral();
