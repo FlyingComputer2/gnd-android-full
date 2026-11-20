@@ -74,6 +74,80 @@ public final class ScpConsole {
                 });
     }
 
+    /** A file operation for the explorer, with a fresh client on the worker. */
+    public interface Job {
+        void run(UdpfsClient c) throws IOException;
+    }
+
+    /**
+     * Runs job on the worker, sharing the one-at-a-time slot with console commands; fail gets the
+     * error (on the worker thread). False when busy.
+     */
+    public boolean submitJob(Job job, Consumer<IOException> fail) {
+        return submitJob(job, fail, 0);
+    }
+
+    /** As above, waiting up to awaitOpenMs for the link (it reconnects after the app resumes). */
+    public boolean submitJob(Job job, Consumer<IOException> fail, long awaitOpenMs) {
+        if (!busy.compareAndSet(false, true)) {
+            return false;
+        }
+        worker.execute(
+                () -> {
+                    try {
+                        cur = root.get();
+                        long until = System.nanoTime() + awaitOpenMs * 1_000_000L;
+                        while (!link.isOpen() && System.nanoTime() < until) {
+                            Thread.sleep(100);
+                        }
+                        if (!link.isOpen()) {
+                            throw new IOException("USB CLI not open: connect the ground");
+                        }
+                        link.drain();
+                        job.run(new UdpfsClient(link, cfg));
+                    } catch (IOException e) {
+                        fail.accept(e);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } catch (RuntimeException e) {
+                        fail.accept(new IOException(e.toString(), e));
+                    } finally {
+                        busy.set(false);
+                    }
+                });
+        return true;
+    }
+
+    /** Within a job: downloads remote (a directory recursively) into dir, CRC-checked. */
+    public long getInto(UdpfsClient c, String remote, File dir, Consumer<String> out)
+            throws IOException {
+        if (!dir.isDirectory() && !dir.mkdirs()) {
+            throw new IOException("cannot create " + dir);
+        }
+        return download(c, remote, dir, true, out);
+    }
+
+    /** Within a job: uploads one local file to remote (into it when a directory), CRC-checked. */
+    public long put(UdpfsClient c, File src, String remote, Consumer<String> out) throws IOException {
+        return upload(c, src, remote, false, out);
+    }
+
+    /** Within a job: the server's CRC32 of the whole file. */
+    public static long crc(UdpfsClient c, String remote) throws IOException {
+        UdpfsWire.Stat st = c.stat(remote);
+        int fd = c.open(remote, UdpfsWire.O_RDONLY, 0);
+        try {
+            return c.crcAll(fd, st.size());
+        } finally {
+            c.close(fd);
+        }
+    }
+
+    /** The storage root for the job running (worker thread). */
+    public File storageRoot() {
+        return cur != null ? cur : root.get();
+    }
+
     public void shutdown() {
         worker.shutdownNow();
     }
@@ -190,12 +264,7 @@ public final class ScpConsole {
                 case "crc": {
                     need(a, 1);
                     UdpfsWire.Stat st = c.stat(a.get(0));
-                    int fd = c.open(a.get(0), UdpfsWire.O_RDONLY, 0);
-                    try {
-                        out.accept(String.format(Locale.US, "%08x %d %s", c.crcAll(fd, st.size()), st.size(), a.get(0)));
-                    } finally {
-                        c.close(fd);
-                    }
+                    out.accept(String.format(Locale.US, "%08x %d %s", crc(c, a.get(0)), st.size(), a.get(0)));
                     return;
                 }
                 case "cat": {
@@ -438,7 +507,7 @@ public final class ScpConsole {
         }
     }
 
-    static String baseName(String p) {
+    public static String baseName(String p) {
         String s = p;
         while (s.length() > 1 && s.endsWith("/")) {
             s = s.substring(0, s.length() - 1);
@@ -447,7 +516,7 @@ public final class ScpConsole {
         return i < 0 ? s : s.substring(i + 1);
     }
 
-    static String join(String dir, String name) {
+    public static String join(String dir, String name) {
         return dir.endsWith("/") ? dir + name : dir + "/" + name;
     }
 

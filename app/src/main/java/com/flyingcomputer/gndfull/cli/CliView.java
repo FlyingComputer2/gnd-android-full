@@ -378,6 +378,11 @@ public final class CliView extends LinearLayout {
         ui.postDelayed(p.timeout, REPLY_TIMEOUT_MS);
     }
 
+    /** The rover files console (udpfs on 2440), shared with the FILES explorer; null before setLink. */
+    public ScpConsole fs() {
+        return fs;
+    }
+
     /** Stops routing replies here (the link outlives this view's activity). */
     public void detach() {
         for (Pane p : panes) {
