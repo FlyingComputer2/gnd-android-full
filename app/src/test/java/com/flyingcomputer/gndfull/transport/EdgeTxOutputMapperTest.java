@@ -53,6 +53,19 @@ public final class EdgeTxOutputMapperTest {
     }
 
     @Test
+    public void accessorySwitchesAreIndependentAndSuppressedDuringHold() {
+        int[] p = pulses();
+        for (int mask = 0; mask < 4; mask++) {
+            p[8] = (mask & 1) != 0 ? 1024 : 0;
+            p[9] = (mask & 2) != 0 ? 1024 : 0;
+            CrsfRcChannels ch = viaCrsf(p, CrsfChannelsFrame.STATUS_CH5_ARMING);
+            assertEquals(mask << 1, EdgeTxOutputMapper.map(1, 0, ch, true).pack()[7]);
+            int holdFlags = (mask & 1) != 0 ? RoverRcFrame.FLAG_PHOTO_HELD_IN_CLI : 0;
+            assertEquals(holdFlags, EdgeTxOutputMapper.hold(1, 0, ch).flags);
+        }
+    }
+
+    @Test
     public void holdFrameIsDisarmedAndCentred() {
         int[] p = pulses();
         p[2] = 512; // throttle

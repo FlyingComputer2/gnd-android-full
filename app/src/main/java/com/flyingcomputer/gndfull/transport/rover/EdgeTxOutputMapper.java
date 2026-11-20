@@ -15,6 +15,9 @@ import com.flyingcomputer.gndfull.crsf.CrsfRcChannels;
  *           in between (unmixed = 1500 us) the rover's own `mode` parameter
  * CH7       servo 2 (rover CH2, aux)
  * CH8       servo 3 (rover CH3, aux2)
+ * CH9       one-shot JPEG (momentary)
+ * CH10      binary GPIO (maintained)
+ * CH11–16   unused
  * </pre>
  */
 public final class EdgeTxOutputMapper {
@@ -24,6 +27,10 @@ public final class EdgeTxOutputMapper {
     public static final int CH_MODE = 6;
     public static final int CH_SERVO2 = 7;
     public static final int CH_SERVO3 = 8;
+
+    public static final int CH_PHOTO = 9;
+    public static final int CH_BINARY = 10;
+    private static final int SWITCH_HIGH_US = 1750;
 
     /** rover_sample steering modes (param `mode`). */
     public static final int MODE_MANUAL = 0;
@@ -37,6 +44,12 @@ public final class EdgeTxOutputMapper {
      */
     public static RoverRcFrame map(int seq, long timeUsLow32, CrsfRcChannels ch, boolean allowArm) {
         int flags = allowArm && ch.armed() ? RoverRcFrame.FLAG_ARM : 0;
+        if (allowArm && ch.channel(CH_PHOTO) >= SWITCH_HIGH_US) {
+            flags |= RoverRcFrame.FLAG_PHOTO;
+        }
+        if (allowArm && ch.channel(CH_BINARY) >= SWITCH_HIGH_US) {
+            flags |= RoverRcFrame.FLAG_BINARY;
+        }
         int ch6 = ch.channel(CH_MODE);
         int mode = ch6 <= 1250 ? MODE_MANUAL : ch6 >= 1750 ? MODE_RATE : RoverRcFrame.MODE_NONE;
         return new RoverRcFrame(
@@ -57,7 +70,9 @@ public final class EdgeTxOutputMapper {
      */
     public static RoverRcFrame hold(int seq, long timeUsLow32, CrsfRcChannels ch) {
         RoverRcFrame f = map(seq, timeUsLow32, ch, false);
-        return new RoverRcFrame(f.seq, f.timeUsLow32, f.src, 0, f.mode, 0, 0, f.aux, f.aux2);
+        // Preserve the physical switch position across CLI exit without requesting a photo.
+        int flags = ch.channel(CH_PHOTO) >= SWITCH_HIGH_US ? RoverRcFrame.FLAG_PHOTO_HELD_IN_CLI : 0;
+        return new RoverRcFrame(f.seq, f.timeUsLow32, f.src, flags, f.mode, 0, 0, f.aux, f.aux2);
     }
 
     /** EdgeTX +-100 % = 1500 +- 512 us = +-1000. */
