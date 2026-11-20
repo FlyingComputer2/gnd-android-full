@@ -27,12 +27,19 @@ public final class UdpfsClient {
 
     public static final class Config {
         public int maxDatagram = 1400;
-        /** Wait for a response before resending (USB + ground + air round trip ~100-150 ms). */
-        public long retransmitMs = 600;
-        /** Sends of one request before ETIMEDOUT. */
-        public int tries = 12;
-        /** Bulk requests in flight. */
-        public int window = 8;
+        /**
+         * Resend timer (RFC 6298): smoothed round trip + 4 x its variation, from responses to
+         * requests sent once; initialRtoMs until the first sample, clamped to [minRtoMs,
+         * maxRtoMs], doubled per resend of a request. On the rover link the round trip varies
+         * 30-200 ms with live video; below 200 ms late responses were resent for nothing.
+         */
+        public long initialRtoMs = 400;
+        public long minRtoMs = 200;
+        public long maxRtoMs = 3000;
+        /** ETIMEDOUT when a request has no response this long after its first send. */
+        public long giveUpMs = 15000;
+        /** Bulk requests in flight (more only queue up on the rover). */
+        public int window = 16;
     }
 
     public interface Progress {
@@ -56,6 +63,30 @@ public final class UdpfsClient {
     private final Config cfg;
     private int nextReqid;
     public long requests, sends, retransmits, stray;
+    private boolean haveRtt;
+    private double srtt, rttvar;
+
+    /** The smoothed round trip in ms, 0 before the first sample. */
+    public double srttMs() {
+        return haveRtt ? srtt : 0;
+    }
+
+    long rto(long floorMs) {
+        double r = haveRtt ? srtt + Math.max(1.0, 4 * rttvar) : cfg.initialRtoMs;
+        r = Math.min(Math.max(r, cfg.minRtoMs), cfg.maxRtoMs);
+        return Math.max((long) r, floorMs);
+    }
+
+    private void rttSample(double ms) {
+        if (!haveRtt) {
+            srtt = ms;
+            rttvar = ms / 2;
+            haveRtt = true;
+        } else {
+            rttvar = 0.75 * rttvar + 0.25 * Math.abs(srtt - ms);
+            srtt = 0.875 * srtt + 0.125 * ms;
+        }
+    }
 
     public UdpfsClient(Transport t, Config cfg) {
         this.t = t;
@@ -91,8 +122,10 @@ public final class UdpfsClient {
         final int reqid;
         final byte[] bytes;
         final long tag;
-        long sent;
-        int tries;
+        long first;
+        long last;
+        long timeout;
+        boolean resent;
 
         Pending(UdpfsWire.Request r, long tag) {
             this.op = r.op;
@@ -109,11 +142,10 @@ public final class UdpfsClient {
     private void send(Pending p) {
         sends++;
         t.send(p.bytes);
-        p.sent = now();
-        p.tries++;
     }
 
-    private void pipeline(Next next, Done done, int window, long retransmitMs) throws IOException {
+    /** rtoFloorMs: the resend timer is at least this (CRC32 computes a while; no samples then). */
+    private void pipeline(Next next, Done done, int window, long rtoFloorMs) throws IOException {
         Deque<Pending> inflight = new ArrayDeque<>();
         boolean more = true;
         try {
@@ -128,6 +160,8 @@ public final class UdpfsClient {
                         throw new UdpfsException(UdpfsWire.EMSGSIZE, "request too large");
                     }
                     requests++;
+                    p.first = p.last = now();
+                    p.timeout = rto(rtoFloorMs);
                     inflight.add(p);
                     send(p);
                 }
@@ -137,7 +171,7 @@ public final class UdpfsClient {
                 long wait = Long.MAX_VALUE;
                 long n = now();
                 for (Pending p : inflight) {
-                    wait = Math.min(wait, p.sent + retransmitMs - n);
+                    wait = Math.min(wait, p.last + p.timeout - n);
                 }
                 byte[] d = t.receive(Math.max(wait, 0));
                 if (d != null) {
@@ -156,17 +190,24 @@ public final class UdpfsClient {
                     if (match == null) {
                         stray++;
                     } else {
+                        // Karn: a resent request's response could answer any of its sends.
+                        if (!match.resent && rtoFloorMs == 0) {
+                            rttSample(now() - match.first);
+                        }
                         done.done(match, r);
                     }
                 }
                 long t2 = now();
                 for (Pending p : inflight) {
-                    if (t2 - p.sent >= retransmitMs) {
-                        if (p.tries >= cfg.tries) {
+                    if (t2 - p.last >= p.timeout) {
+                        if (t2 - p.first >= cfg.giveUpMs) {
                             throw new UdpfsException(UdpfsWire.ETIMEDOUT, "no reply");
                         }
                         retransmits++;
                         send(p);
+                        p.last = t2;
+                        p.resent = true;
+                        p.timeout = Math.min(p.timeout * 2, Math.max(cfg.maxRtoMs, rtoFloorMs));
                     }
                 }
             }
@@ -176,7 +217,7 @@ public final class UdpfsClient {
         }
     }
 
-    private UdpfsWire.Response call(UdpfsWire.Request req, long retransmitMs) throws IOException {
+    private UdpfsWire.Response call(UdpfsWire.Request req, long rtoFloorMs) throws IOException {
         UdpfsWire.Response[] out = new UdpfsWire.Response[1];
         Pending only = new Pending(req, 0);
         boolean[] sent = {false};
@@ -190,7 +231,7 @@ public final class UdpfsClient {
                 },
                 (p, r) -> out[0] = r,
                 1,
-                retransmitMs);
+                rtoFloorMs);
         UdpfsWire.Response r = out[0];
         if (r.ret < 0) {
             throw new UdpfsException(r.err == 0 ? UdpfsWire.EIO : r.err, null);
@@ -199,7 +240,7 @@ public final class UdpfsClient {
     }
 
     private UdpfsWire.Response call(UdpfsWire.Request req) throws IOException {
-        return call(req, cfg.retransmitMs);
+        return call(req, 0);
     }
 
     // ---- operations ----
@@ -299,7 +340,7 @@ public final class UdpfsClient {
             UdpfsWire.Response r =
                     call(
                             begin(UdpfsWire.OP_CRC32).i32(fd).u64(off).u64(len).u32(crc),
-                            Math.max(cfg.retransmitMs, CRC_RETRANSMIT_MS));
+                            CRC_RETRANSMIT_MS);
             crc = r.u32();
             long n = r.i64();
             if (n == 0) {
@@ -360,7 +401,7 @@ public final class UdpfsClient {
                     }
                 },
                 cfg.window,
-                cfg.retransmitMs);
+                0);
         if (state[1] != size) {
             throw new UdpfsException(UdpfsWire.EIO, "file shorter than " + size);
         }
@@ -411,7 +452,7 @@ public final class UdpfsClient {
                     }
                 },
                 cfg.window,
-                cfg.retransmitMs);
+                0);
         if (state[1] != size) {
             throw new UdpfsException(UdpfsWire.EIO, "short write");
         }

@@ -68,8 +68,10 @@ public class UdpfsClientTest {
 
     static UdpfsClient.Config fast() {
         UdpfsClient.Config c = new UdpfsClient.Config();
-        c.retransmitMs = 1;
-        c.tries = 200;
+        c.initialRtoMs = 1;
+        c.minRtoMs = 1;
+        c.maxRtoMs = 20;
+        c.giveUpMs = 30000;
         return c;
     }
 
