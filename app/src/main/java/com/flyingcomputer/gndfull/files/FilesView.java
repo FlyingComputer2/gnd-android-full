@@ -495,6 +495,7 @@ public final class FilesView extends LinearLayout {
                             bytes += fs.getInto(c, FileListing.child(dir, name), into,
                                     line -> ui.post(() -> setStatus(tag + line, false)));
                         } catch (UdpfsException x) { // this entry only; a link error ends the job
+                            entryError(x);
                             failed.add(name + ": " + x.getMessage());
                         }
                     }
@@ -551,6 +552,7 @@ public final class FilesView extends LinearLayout {
                                     c.unlink(path);
                                 }
                             } catch (UdpfsException x) { // this entry only; a link error ends the job
+                                entryError(x);
                                 failed.add(e.name() + ": " + x.getMessage());
                             }
                         }
@@ -569,6 +571,13 @@ public final class FilesView extends LinearLayout {
                 })
                 .setNegativeButton("cancel", null)
                 .show();
+    }
+
+    /** Rethrows a link error (no reply: every later entry would wait out the same timeout). */
+    private static void entryError(UdpfsException x) throws UdpfsException {
+        if (x.errno == UdpfsWire.ETIMEDOUT) {
+            throw x;
+        }
     }
 
     /** Status line, plus a dialog listing the entries that failed. */
